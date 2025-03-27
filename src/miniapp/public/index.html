@@ -30,10 +30,30 @@
         <div class="contacts-panel">
           <div class="contacts-header">
             <h2>Контакты</h2>
+            <div class="contacts-tabs">
+              <button class="tab-btn active" data-tab="friends">Друзья</button>
+              <button class="tab-btn" data-tab="search">Поиск</button>
+            </div>
           </div>
-          <div id="contactsList" class="contacts-list">
-            <!-- Контакты будут добавлены через JavaScript -->
-            <div class="loading-contacts">Загрузка контактов...</div>
+          
+          <!-- Вкладка друзей -->
+          <div id="friendsTab" class="tab-content active">
+            <div id="contactsList" class="contacts-list">
+              <!-- Контакты будут добавлены через JavaScript -->
+              <div class="loading-contacts">Загрузка контактов...</div>
+            </div>
+          </div>
+          
+          <!-- Вкладка поиска -->
+          <div id="searchTab" class="tab-content">
+            <div class="search-container">
+              <input type="text" id="searchInput" placeholder="Поиск по имени или @username">
+              <button id="searchButton">Найти</button>
+            </div>
+            <div id="searchResults" class="search-results">
+              <!-- Результаты поиска будут добавлены через JavaScript -->
+              <div class="no-results">Начните поиск, чтобы найти пользователей</div>
+            </div>
           </div>
         </div>
         
@@ -59,8 +79,29 @@
         </div>
       </div>
     </div>
+    
+    <!-- Модальное окно для информации о пользователе -->
+    <div id="userInfoModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <div class="user-profile">
+          <div id="modalUserAvatar" class="modal-user-avatar"></div>
+          <h2 id="modalUserName"></h2>
+          <p id="modalUsername"></p>
+          <div class="user-actions">
+            <button id="addFriendBtn" class="primary-btn">Добавить в друзья</button>
+            <button id="removeFriendBtn" class="secondary-btn" style="display: none;">Удалить из друзей</button>
+            <button id="startChatBtn" class="primary-btn">Начать чат</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
+  <!-- Скрипт для подключения звонков WebRTC -->
+  <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+  
+  <!-- Основной скрипт приложения -->
   <script src="app.js"></script>
 </body>
 </html> 

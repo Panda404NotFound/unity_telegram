@@ -2,7 +2,8 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 :root {
@@ -13,42 +14,52 @@
   --tg-theme-button-color: #3498db;
   --tg-theme-button-text-color: #ffffff;
   --tg-theme-secondary-bg-color: #f8f9fa;
+  
+  --color-primary: #3498db;
+  --color-primary-light: #5eade1;
+  --color-secondary: #e9f5fe;
+  --color-danger: #e74c3c;
+  --color-success: #2ecc71;
+  --border-radius: 10px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
 }
 
-body {
+body, html {
+  height: 100%;
   background-color: var(--tg-theme-bg-color);
   color: var(--tg-theme-text-color);
-  height: 100vh;
-  width: 100%;
-  overflow: hidden;
 }
 
 .app-wrapper {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
 }
 
-/* Loading Screen */
+/* Экран загрузки */
 .loading-screen {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  right: 0;
+  bottom: 0;
+  background-color: var(--tg-theme-bg-color);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: var(--tg-theme-bg-color);
   z-index: 1000;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--tg-theme-hint-color);
+  border: 4px solid var(--tg-theme-secondary-bg-color);
   border-top: 4px solid var(--tg-theme-button-color);
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -60,42 +71,7 @@ body {
   100% { transform: rotate(360deg); }
 }
 
-/* User Info */
-.user-info {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  background-color: var(--tg-theme-bg-color);
-  border-bottom: 1px solid var(--tg-theme-hint-color, #e0e0e0);
-}
-
-.user-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background-color: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-weight: bold;
-  margin-right: 12px;
-  font-size: 16px;
-}
-
-.user-name {
-  font-size: 16px;
-  font-weight: 500;
-}
-
-/* Content Wrapper */
-.content-wrapper {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* App Container */
+/* Основной контейнер */
 .app-container {
   display: flex;
   flex-direction: column;
@@ -103,40 +79,156 @@ body {
   width: 100%;
 }
 
-/* Contacts Panel */
-.contacts-panel {
-  width: 300px;
-  min-width: 200px;
+/* Информация о пользователе */
+.user-info {
+  display: flex;
+  align-items: center;
+  padding: 12px;
   background-color: var(--tg-theme-secondary-bg-color);
-  border-right: 1px solid var(--tg-theme-hint-color, #e0e0e0);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
+  font-weight: bold;
+  margin-right: 12px;
+  overflow: hidden;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-name {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* Основной контент */
+.content-wrapper {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Панель контактов */
+.contacts-panel {
+  width: 35%;
+  min-width: 200px;
+  max-width: 320px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: var(--tg-theme-secondary-bg-color);
 }
 
 .contacts-header {
   padding: 16px;
-  border-bottom: 1px solid var(--tg-theme-hint-color, #e0e0e0);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
-.contacts-list {
-  padding: 8px;
-  overflow-y: auto;
+.contacts-header h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+/* Вкладки */
+.contacts-tabs {
+  display: flex;
+  margin-top: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
   flex: 1;
+  text-align: center;
 }
 
-.loading-contacts {
-  padding: 16px;
+.tab-btn.active {
+  color: var(--tg-theme-button-color);
+  border-bottom: 2px solid var(--tg-theme-button-color);
+}
+
+.tab-content {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.tab-content.active {
+  display: flex;
+}
+
+/* Поле поиска */
+.search-container {
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+#searchInput {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+}
+
+#searchButton {
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px;
+}
+
+.no-results {
+  padding: 16px 0;
   text-align: center;
   color: var(--tg-theme-hint-color);
+  font-size: 14px;
+}
+
+/* Список контактов */
+.contacts-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
 }
 
 .contact-item {
   display: flex;
   align-items: center;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--border-radius);
+  margin-bottom: 8px;
   cursor: pointer;
   transition: background-color 0.2s;
 }
@@ -146,7 +238,7 @@ body {
 }
 
 .contact-item.active {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--color-secondary);
 }
 
 .contact-avatar {
@@ -158,35 +250,105 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  font-size: 16px;
   font-weight: bold;
   margin-right: 12px;
-  font-size: 18px;
 }
 
 .contact-name {
-  font-size: 16px;
+  font-size: 15px;
 }
 
-/* Chat Area */
+.contact-username {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  margin-top: 2px;
+}
+
+.loading-contacts, .loading-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--tg-theme-hint-color);
+}
+
+.loading-error {
+  color: var(--color-danger);
+}
+
+/* Добавляем значок для поиска */
+.search-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.search-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.search-item-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--tg-theme-hint-color);
+  color: var(--tg-theme-button-text-color);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
+  font-weight: bold;
+  margin-right: 12px;
+}
+
+.search-item-info {
+  flex: 1;
+}
+
+.search-item-name {
+  font-size: 15px;
+}
+
+.search-item-username {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+
+.search-item-action {
+  color: var(--tg-theme-button-color);
+  background: none;
+  border: none;
+  padding: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Область чата */
 .chat-area {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: var(--tg-theme-bg-color);
   overflow: hidden;
 }
 
 .chat-header {
   padding: 16px;
-  border-bottom: 1px solid var(--tg-theme-hint-color, #e0e0e0);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
+.chat-header h2 {
+  font-size: 18px;
+}
+
 .call-controls {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .call-btn {
@@ -194,13 +356,9 @@ body {
   color: var(--tg-theme-button-text-color);
   border: none;
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 6px 12px;
+  font-size: 14px;
   cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.call-btn:hover {
-  opacity: 0.9;
 }
 
 .messages-container {
@@ -209,75 +367,261 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background-color: var(--tg-theme-bg-color);
 }
 
 .start-chat-message {
   text-align: center;
   color: var(--tg-theme-hint-color);
   margin: auto;
+  max-width: 250px;
+  line-height: 1.5;
 }
 
 .message {
-  padding: 10px 16px;
-  border-radius: 18px;
   max-width: 70%;
-  word-wrap: break-word;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border-radius: 18px;
   position: relative;
+  word-wrap: break-word;
 }
 
 .message-sent {
   align-self: flex-end;
   background-color: var(--tg-theme-button-color);
   color: var(--tg-theme-button-text-color);
+  border-bottom-right-radius: 4px;
 }
 
 .message-received {
   align-self: flex-start;
   background-color: var(--tg-theme-secondary-bg-color);
+  border-bottom-left-radius: 4px;
+}
+
+.message-text {
+  margin-bottom: 4px;
 }
 
 .message-time {
   font-size: 11px;
-  opacity: 0.7;
-  margin-top: 4px;
   text-align: right;
+  opacity: 0.8;
 }
 
 .message-input-container {
   display: flex;
-  padding: 16px;
-  border-top: 1px solid var(--tg-theme-hint-color, #e0e0e0);
+  padding: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   background-color: var(--tg-theme-bg-color);
 }
 
-#messageInput {
+.message-input-container input {
   flex: 1;
-  padding: 12px;
-  border: 1px solid var(--tg-theme-hint-color, #e0e0e0);
-  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 18px;
+  padding: 8px 16px;
   margin-right: 8px;
-  outline: none;
+  font-size: 14px;
+  background-color: var(--tg-theme-secondary-bg-color);
+}
+
+.message-input-container button {
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border: none;
+  border-radius: 18px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Модальное окно профиля пользователя */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.modal-content {
+  background-color: var(--tg-theme-bg-color);
+  margin: 15% auto;
+  padding: 20px;
+  width: 80%;
+  max-width: 400px;
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.close-modal {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  color: var(--tg-theme-hint-color);
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.user-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.modal-user-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 32px;
+  font-weight: bold;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.modal-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#modalUserName {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+#modalUsername {
+  color: var(--tg-theme-hint-color);
+  margin-bottom: 16px;
+}
+
+.user-actions {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.primary-btn, .secondary-btn {
+  padding: 10px 16px;
+  border-radius: var(--border-radius);
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.primary-btn {
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+.secondary-btn {
+  background-color: var(--tg-theme-secondary-bg-color);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+/* Звонки */
+.call-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--tg-theme-bg-color);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+}
+
+.call-header {
+  padding: 16px;
+  text-align: center;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.call-status {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
+  margin-top: 4px;
+}
+
+.call-video-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.remote-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: #000;
+}
+
+.local-video {
+  position: absolute;
+  width: 120px;
+  height: 180px;
+  right: 16px;
+  bottom: 16px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid #fff;
+  background-color: #555;
+}
+
+.call-controls-container {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.call-control-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.call-end-btn {
+  background-color: var(--color-danger);
+  color: white;
+}
+
+.call-toggle-btn {
   background-color: var(--tg-theme-secondary-bg-color);
   color: var(--tg-theme-text-color);
 }
 
-#sendMessageBtn {
-  background-color: var(--tg-theme-button-color);
-  color: var(--tg-theme-button-text-color);
-  border: none;
-  border-radius: 24px;
-  padding: 0 20px;
-  cursor: pointer;
-  transition: opacity 0.2s;
+.call-toggle-btn.disabled {
+  background-color: #f1f1f1;
+  color: #999;
 }
 
-#sendMessageBtn:hover {
-  opacity: 0.9;
-}
-
-/* Media Queries for Responsive Design */
+/* Медиа запросы для адаптивности */
 @media (max-width: 768px) {
   .content-wrapper {
     flex-direction: column;
@@ -285,40 +629,49 @@ body {
   
   .contacts-panel {
     width: 100%;
-    height: 80px;
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
+    max-width: none;
+    height: 40%;
+    min-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   }
   
-  .contacts-header {
-    display: none;
+  .contacts-header h2 {
+    font-size: 16px;
   }
   
-  .contacts-list {
-    display: flex;
-    padding: 10px;
-    overflow-y: hidden;
-    overflow-x: auto;
+  .chat-header h2 {
+    font-size: 16px;
   }
   
-  .contact-item {
-    flex-direction: column;
-    padding: 8px;
-    min-width: 60px;
-  }
-  
-  .contact-avatar {
-    margin-right: 0;
-    margin-bottom: 4px;
-  }
-  
-  .contact-name {
+  .call-btn {
+    padding: 4px 8px;
     font-size: 12px;
-    text-align: center;
   }
   
-  .user-info {
-    padding: 8px;
+  .local-video {
+    width: 80px;
+    height: 120px;
   }
+}
+
+/* Экран ошибки */
+.error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.error-message {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.retry-button {
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
 } 

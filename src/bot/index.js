@@ -2,6 +2,11 @@ require('dotenv').config();
 const { Bot, InlineKeyboard, BotError, GrammyError, HttpError } = require('grammy');
 const express = require('express');
 const path = require('path');
+const bodyParser = require('body-parser');
+
+// TODO: Временное хранилище пользователей (в реальном приложении - БД)
+const users = new Map();
+const friendships = new Map(); // Карта для связей дружбы: userId -> Set(friendIds)
 
 // Initialize bot with token from environment variables
 const bot = new Bot(process.env.BOT_TOKEN);
@@ -68,10 +73,18 @@ bot.catch((err) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Разбор JSON и URL-encoded данных
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
 // Обработка CORS для разработки
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
@@ -97,7 +110,333 @@ app.get('/api/users', (req, res) => {
   res.json(users);
 });
 
-// TODO: API для истории сообщений (заглушка)
+// API для регистрации/обновления пользователя
+app.post('/api/users/register', (req, res) => {
+  try {
+    const userData = req.body;
+    
+    if (!userData || !userData.id) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Требуются данные пользователя' 
+      });
+    }
+    
+    // Сохраняем или обновляем пользователя
+    users.set(userData.id.toString(), {
+      id: userData.id.toString(),
+      firstName: userData.firstName || '',
+      lastName: userData.lastName || '',
+      username: userData.username || '',
+      photoUrl: userData.photoUrl || null,
+      languageCode: userData.languageCode || 'ru',
+      lastActive: new Date().toISOString()
+    });
+    
+    // Инициализируем список друзей, если он еще не создан
+    if (!friendships.has(userData.id.toString())) {
+      friendships.set(userData.id.toString(), new Set());
+    }
+    
+    console.log(`Пользователь зарегистрирован/обновлен: ${userData.id} (${userData.username || 'без имени пользователя'})`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Пользователь успешно зарегистрирован' 
+    });
+  } catch (error) {
+    console.error('Ошибка при регистрации пользователя:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для поиска пользователей по имени пользователя (username)
+app.get('/api/users/search', (req, res) => {
+  try {
+    const { query } = req.query;
+    
+    if (!query) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Требуется параметр query' 
+      });
+    }
+    
+    // Поиск пользователей по частичному совпадению имени пользователя
+    const searchQuery = query.toLowerCase().replace('@', '');
+    const results = Array.from(users.values())
+      .filter(user => {
+        // Ищем совпадения в username, firstName или lastName
+        return (user.username && user.username.toLowerCase().includes(searchQuery)) ||
+               (user.firstName && user.firstName.toLowerCase().includes(searchQuery)) ||
+               (user.lastName && user.lastName.toLowerCase().includes(searchQuery));
+      })
+      .map(user => ({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        username: user.username,
+        photoUrl: user.photoUrl
+      }));
+    
+    res.json({ 
+      success: true, 
+      results
+    });
+  } catch (error) {
+    console.error('Ошибка при поиске пользователей:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для получения списка друзей пользователя
+app.get('/api/users/:userId/friends', (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Требуется ID пользователя' 
+      });
+    }
+    
+    // Проверяем, существует ли пользователь
+    if (!users.has(userId)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь не найден' 
+      });
+    }
+    
+    // Получаем список друзей
+    const userFriends = friendships.get(userId) || new Set();
+    
+    // Преобразуем ID друзей в объекты пользователей
+    const friendsList = Array.from(userFriends)
+      .map(friendId => {
+        const friend = users.get(friendId);
+        if (friend) {
+          return {
+            id: friend.id,
+            firstName: friend.firstName,
+            lastName: friend.lastName,
+            username: friend.username,
+            photoUrl: friend.photoUrl
+          };
+        }
+        return null;
+      })
+      .filter(Boolean); // Фильтруем null значения
+    
+    res.json({ 
+      success: true, 
+      friends: friendsList
+    });
+  } catch (error) {
+    console.error('Ошибка при получении списка друзей:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для добавления друга
+app.post('/api/users/:userId/friends/:friendId', (req, res) => {
+  try {
+    const { userId, friendId } = req.params;
+    
+    // Проверяем, существуют ли оба пользователя
+    if (!users.has(userId)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь не найден' 
+      });
+    }
+    
+    if (!users.has(friendId)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь для добавления в друзья не найден' 
+      });
+    }
+    
+    // Проверяем, не пытается ли пользователь добавить сам себя
+    if (userId === friendId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Нельзя добавить себя в список друзей' 
+      });
+    }
+    
+    // Инициализируем список друзей, если он еще не создан
+    if (!friendships.has(userId)) {
+      friendships.set(userId, new Set());
+    }
+    
+    if (!friendships.has(friendId)) {
+      friendships.set(friendId, new Set());
+    }
+    
+    // Добавляем пользователей в списки друзей друг друга (двунаправленная связь)
+    friendships.get(userId).add(friendId);
+    friendships.get(friendId).add(userId);
+    
+    console.log(`Добавлена связь дружбы: ${userId} <-> ${friendId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Друг успешно добавлен' 
+    });
+  } catch (error) {
+    console.error('Ошибка при добавлении друга:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для удаления друга
+app.delete('/api/users/:userId/friends/:friendId', (req, res) => {
+  try {
+    const { userId, friendId } = req.params;
+    
+    // Проверяем, существуют ли оба пользователя и связь дружбы
+    if (!friendships.has(userId) || !friendships.has(friendId)) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь или связь не найдены' 
+      });
+    }
+    
+    // Удаляем пользователей из списков друзей друг друга
+    friendships.get(userId).delete(friendId);
+    friendships.get(friendId).delete(userId);
+    
+    console.log(`Удалена связь дружбы: ${userId} <-> ${friendId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Друг успешно удален' 
+    });
+  } catch (error) {
+    console.error('Ошибка при удалении друга:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для получения списка онлайн пользователей (заглушка)
+app.get('/api/users/online', (req, res) => {
+  try {
+    // В реальном приложении здесь был бы запрос к БД
+    // Для демо возвращаем всех пользователей, кто был активен в последние 10 минут
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    
+    const onlineUsers = Array.from(users.values())
+      .filter(user => user.lastActive > tenMinutesAgo)
+      .map(user => ({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        username: user.username,
+        photoUrl: user.photoUrl
+      }));
+    
+    res.json({ 
+      success: true, 
+      users: onlineUsers
+    });
+  } catch (error) {
+    console.error('Ошибка при получении списка онлайн пользователей:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для получения информации о пользователе (заглушка)
+app.get('/api/users/:userId', (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Требуется ID пользователя' 
+      });
+    }
+    
+    const user = users.get(userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Пользователь не найден' 
+      });
+    }
+    
+    // Не возвращаем некоторые приватные поля
+    const userData = {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.username,
+      photoUrl: user.photoUrl
+    };
+    
+    res.json({ 
+      success: true, 
+      user: userData
+    });
+  } catch (error) {
+    console.error('Ошибка при получении информации о пользователе:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для проверки аккаунта
+app.get('/api/account/check', (req, res) => {
+  try {
+    const { telegramId } = req.query;
+    
+    if (!telegramId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Требуется параметр telegramId' 
+      });
+    }
+    
+    const userExists = users.has(telegramId);
+    
+    res.json({ 
+      success: true, 
+      exists: userExists
+    });
+  } catch (error) {
+    console.error('Ошибка при проверке аккаунта:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Внутренняя ошибка сервера' 
+    });
+  }
+});
+
+// API для истории сообщений (заглушка)
 app.get('/api/messages/:userId', (req, res) => {
   const userId = req.params.userId;
   // Заглушка истории сообщений
