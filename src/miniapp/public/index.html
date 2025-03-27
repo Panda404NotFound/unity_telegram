@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Telega TG</title>
+  <!-- Подключаем Telegram WebApp API -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Экран загрузки, скрывается после инициализации -->
+    <div id="loadingScreen" class="loading-screen">
+      <div class="loading-spinner"></div>
+      <p>Загрузка приложения...</p>
+    </div>
+
+    <!-- Основной контейнер приложения, скрыт при загрузке -->
+    <div id="appContainer" class="app-container" style="display: none;">
+      <!-- Информация о пользователе -->
+      <div class="user-info">
+        <div id="userAvatar" class="user-avatar"></div>
+        <div id="userName" class="user-name"></div>
+      </div>
+
+      <!-- Основной контент -->
+      <div class="content-wrapper">
+        <!-- Панель контактов -->
+        <div class="contacts-panel">
+          <div class="contacts-header">
+            <h2>Контакты</h2>
+          </div>
+          <div id="contactsList" class="contacts-list">
+            <!-- Контакты будут добавлены через JavaScript -->
+            <div class="loading-contacts">Загрузка контактов...</div>
+          </div>
+        </div>
+        
+        <!-- Область чата -->
+        <div class="chat-area">
+          <div class="chat-header">
+            <h2 id="chatTitle">Выберите контакт</h2>
+            <div id="callControls" class="call-controls" style="display: none;">
+              <button id="audioCallBtn" class="call-btn">📞 Аудио</button>
+              <button id="videoCallBtn" class="call-btn">📹 Видео</button>
+            </div>
+          </div>
+          <div class="messages-container" id="messagesContainer">
+            <!-- Сообщения будут добавлены через JavaScript -->
+            <div class="start-chat-message">
+              Выберите контакт, чтобы начать общение
+            </div>
+          </div>
+          <div id="messageInputContainer" class="message-input-container" style="display: none;">
+            <input type="text" id="messageInput" placeholder="Введите сообщение...">
+            <button id="sendMessageBtn">Отправить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html> 
