@@ -52,6 +52,648 @@ let localStream = null;
 let peerConnection = null;
 let callInProgress = false;
 let callType = null; // 'audio' или 'video'
+let webrtcManager = null; // Менеджер WebRTC
+
+// Класс для управления WebRTC соединениями
+class WebRTCManager {
+  constructor() {
+    this.socket = null;
+    this.peerConnection = null;
+    this.localStream = null;
+    this.remoteStream = null;
+    this.roomId = null;
+    this.currentUserId = null;
+    this.targetUserId = null;
+    this.connected = false;
+    this.callType = null;
+    this.isInitiator = false;
+    this.remoteOffer = null; // SDP-предложение от звонящего
+    this.iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // Добавляем общедоступные STUN-серверы для повышения вероятности успешного соединения
+      { urls: 'stun:stun.stunprotocol.org:3478' },
+      { urls: 'stun:stun.voip.blackberry.com:3478' },
+      { urls: 'stun:stun.voipbuster.com:3478' },
+      { urls: 'stun:stun.sipgate.net:3478' }
+      // Примечание: для реального проекта рекомендуется добавить TURN-серверы
+      // для обхода симметричных NAT. Например:
+      // { urls: 'turn:turn.example.com:3478', username: 'user', credential: 'pass' }
+    ];
+    this.onIncomingCall = null;
+    this.onCallAccepted = null;
+    this.onCallRejected = null;
+    this.onCallInitiated = null;
+    this.onCallEnded = null;
+    this.onError = null;
+    this.onLocalStreamAvailable = null;
+    this.onRemoteStreamAvailable = null;
+    this.onDataChannelMessage = null;
+    this.dataChannel = null;
+    this.pendingCandidates = null;
+  }
+
+  // Инициализация WebSocket соединения
+  init(userId) {
+    // Убедимся, что ID пользователя хранится как строка
+    this.currentUserId = String(userId);
+
+    // Создаем WebSocket соединение
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}`;
+    this.socket = new WebSocket(wsUrl);
+
+    // Обработчики WebSocket
+    this.socket.onopen = () => {
+      console.log('WebSocket соединение установлено');
+      this.register();
+    };
+
+    this.socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.handleSignalMessage(data);
+      } catch (error) {
+        console.error('Ошибка при обработке сообщения от сервера сигнализации:', error);
+      }
+    };
+
+    this.socket.onerror = (error) => {
+      console.error('WebSocket ошибка:', error);
+      if (this.onError) {
+        this.onError('Ошибка сетевого соединения');
+      }
+    };
+
+    this.socket.onclose = () => {
+      console.log('WebSocket соединение закрыто');
+      if (this.connected) {
+        this.cleanupCall();
+        if (this.onError) {
+          this.onError('Соединение с сервером потеряно');
+        }
+      }
+    };
+  }
+
+  // Регистрация пользователя на сервере сигнализации
+  register() {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+
+    console.log(`Регистрация пользователя ${this.currentUserId} на сервере сигнализации`);
+    
+    this.socket.send(JSON.stringify({
+      type: 'register',
+      payload: {
+        userId: this.currentUserId // Уже в формате строки
+      }
+    }));
+  }
+
+  // Обработка сообщений от сервера сигнализации
+  handleSignalMessage(data) {
+    const { type, payload } = data;
+
+    switch (type) {
+      case 'register':
+        console.log('Регистрация на сервере сигнализации успешна');
+        break;
+      case 'incoming-call':
+        this.handleIncomingCall(payload);
+        break;
+      case 'call-initiated':
+        this.handleCallInitiated(payload);
+        break;
+      case 'call-accepted':
+        this.handleCallAccepted(payload);
+        break;
+      case 'call-rejected':
+        this.handleCallRejected(payload);
+        break;
+      case 'ice-candidate':
+        this.handleIceCandidate(payload);
+        break;
+      case 'hangup':
+        this.handleHangup(payload);
+        break;
+      case 'user-disconnected':
+        this.handleUserDisconnected(payload);
+        break;
+      case 'error':
+        console.error('Ошибка от сервера сигнализации:', data.message);
+        if (this.onError) {
+          this.onError(data.message);
+        }
+        break;
+      default:
+        console.warn('Неизвестный тип сообщения от сервера сигнализации:', type);
+    }
+  }
+
+  // Инициирование звонка
+  async startCall(targetUserId, callType = 'audio') {
+    // Преобразуем ID пользователя в строку для корректного сравнения
+    this.targetUserId = String(targetUserId);
+    this.callType = callType;
+    this.isInitiator = true;
+
+    try {
+      console.log(`Начинаем ${callType} звонок с пользователем ${this.targetUserId}`);
+      
+      // Получаем доступ к медиа-устройствам
+      console.log('Запрашиваем доступ к медиа-устройствам');
+      await this.getUserMedia();
+      
+      // Создаем peer connection
+      console.log('Создаем RTCPeerConnection');
+      this.createPeerConnection();
+      
+      // Создаем SDP-предложение
+      console.log('Создаем SDP-предложение');
+      const offer = await this.peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: callType === 'video'
+      });
+      
+      console.log('Устанавливаем локальное SDP-описание (предложение)');
+      await this.peerConnection.setLocalDescription(offer);
+      
+      // Ждем некоторое время, чтобы собрать начальные ICE-кандидаты
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      console.log('Отправляем запрос на звонок с SDP-предложением');
+      this.socket.send(JSON.stringify({
+        type: 'call',
+        payload: {
+          targetUserId: this.targetUserId,
+          callType,
+          offer: this.peerConnection.localDescription
+        }
+      }));
+
+      console.log(`Инициируется ${callType} звонок с пользователем ${this.targetUserId}`);
+      
+      const callStatus = document.getElementById('callStatus');
+      if (callStatus) {
+        callStatus.textContent = 'Вызов...';
+      }
+    } catch (error) {
+      console.error('Ошибка при инициировании звонка:', error);
+      if (this.onError) {
+        this.onError('Не удалось получить доступ к микрофону/камере: ' + error.message);
+      }
+      this.cleanupCall();
+    }
+  }
+
+  // Получение доступа к медиа-устройствам (микрофон/камера)
+  async getUserMedia() {
+    try {
+      // Запрашиваем доступ к медиа-устройствам
+      const constraints = {
+        audio: true,
+        video: this.callType === 'video'
+      };
+
+      this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      if (this.onLocalStreamAvailable) {
+        this.onLocalStreamAvailable(this.localStream);
+      }
+
+      console.log('Доступ к медиа-устройствам получен');
+      return this.localStream;
+    } catch (error) {
+      console.error('Ошибка при получении доступа к медиа-устройствам:', error);
+      throw error;
+    }
+  }
+
+  // Создание и настройка peer connection
+  createPeerConnection() {
+    try {
+      const configuration = {
+        iceServers: this.iceServers
+      };
+
+      this.peerConnection = new RTCPeerConnection(configuration);
+
+      // Добавляем медиа-треки в peer connection
+      if (this.localStream) {
+        this.localStream.getTracks().forEach(track => {
+          this.peerConnection.addTrack(track, this.localStream);
+        });
+      }
+
+      // Обработчик ICE-кандидатов
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('ICE-кандидат сгенерирован:', event.candidate.candidate.substring(0, 50) + '...');
+          this.sendIceCandidate(event.candidate);
+        } else {
+          console.log('Генерация ICE-кандидатов завершена');
+        }
+      };
+
+      // Обработчик изменения состояния ICE
+      this.peerConnection.oniceconnectionstatechange = () => {
+        const state = this.peerConnection.iceConnectionState;
+        console.log('ICE состояние изменилось:', state);
+        
+        const callStatus = document.getElementById('callStatus');
+        if (callStatus) {
+          switch (state) {
+            case 'checking':
+              callStatus.textContent = 'Установка соединения...';
+              break;
+            case 'connected':
+            case 'completed':
+              callStatus.textContent = 'Соединение установлено';
+              this.connected = true;
+              break;
+            case 'failed':
+              callStatus.textContent = 'Не удалось установить соединение';
+              console.error('ICE соединение не удалось установить');
+              this.endCall();
+              break;
+            case 'disconnected':
+              callStatus.textContent = 'Соединение прервано';
+              break;
+            case 'closed':
+              callStatus.textContent = 'Соединение закрыто';
+              break;
+          }
+        }
+      };
+
+      // Обработчик получения ремоут-трека
+      this.peerConnection.ontrack = (event) => {
+        console.log('Получен удаленный трек:', event.track.kind);
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+          if (this.onRemoteStreamAvailable) {
+            this.onRemoteStreamAvailable(this.remoteStream);
+          }
+        }
+        event.streams[0].getTracks().forEach(track => {
+          this.remoteStream.addTrack(track);
+        });
+      };
+
+      // Создаем data channel для передачи текстовых сообщений
+      if (this.isInitiator) {
+        this.dataChannel = this.peerConnection.createDataChannel('chat');
+        this.setupDataChannel();
+      } else {
+        this.peerConnection.ondatachannel = (event) => {
+          this.dataChannel = event.channel;
+          this.setupDataChannel();
+        };
+      }
+
+      console.log('PeerConnection создан');
+      return this.peerConnection;
+    } catch (error) {
+      console.error('Ошибка при создании PeerConnection:', error);
+      throw error;
+    }
+  }
+
+  // Настройка Data Channel
+  setupDataChannel() {
+    if (!this.dataChannel) return;
+
+    this.dataChannel.onopen = () => {
+      console.log('Data channel открыт');
+    };
+
+    this.dataChannel.onclose = () => {
+      console.log('Data channel закрыт');
+    };
+
+    this.dataChannel.onmessage = (event) => {
+      if (this.onDataChannelMessage) {
+        this.onDataChannelMessage(event.data);
+      }
+    };
+  }
+
+  // Отправка сообщения через Data Channel
+  sendMessage(message) {
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      this.dataChannel.send(message);
+      return true;
+    }
+    return false;
+  }
+
+  // Обработка входящего звонка
+  handleIncomingCall(payload) {
+    const { callerId, roomId, callType, offer } = payload;
+    this.callType = callType;
+    this.roomId = roomId;
+    this.targetUserId = String(callerId); // Преобразуем в строку
+    this.isInitiator = false;
+    this.remoteOffer = offer; // Сохраняем SDP-предложение
+
+    console.log(`Входящий ${callType} звонок от пользователя ${this.targetUserId}, ID комнаты: ${roomId}`);
+
+    if (this.onIncomingCall) {
+      this.onIncomingCall(this.targetUserId, roomId, callType);
+    }
+  }
+
+  // Обработка инициации звонка
+  handleCallInitiated(payload) {
+    const { targetUserId, roomId, callType } = payload;
+    this.roomId = roomId;
+    console.log(`Звонок инициирован, ID комнаты: ${roomId}`);
+
+    if (this.onCallInitiated) {
+      this.onCallInitiated(targetUserId, roomId, callType);
+    }
+  }
+
+  // Ответ на входящий звонок
+  async answerCall(accepted) {
+    if (!this.roomId) return;
+
+    if (!accepted) {
+      // Отклоняем звонок
+      this.socket.send(JSON.stringify({
+        type: 'answer',
+        payload: {
+          roomId: this.roomId,
+          accepted: false
+        }
+      }));
+      
+      this.cleanupCall();
+      return;
+    }
+
+    try {
+      // Получаем доступ к медиа-устройствам
+      await this.getUserMedia();
+
+      // Создаем peer connection
+      this.createPeerConnection();
+      
+      // Если есть SDP-предложение, устанавливаем его как удаленное описание
+      if (this.remoteOffer) {
+        console.log('Устанавливаем удаленное SDP-предложение');
+        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(this.remoteOffer));
+      } else {
+        throw new Error('Отсутствует SDP-предложение от звонящего');
+      }
+
+      // Создаем и отправляем SDP-ответ
+      console.log('Создаем SDP-ответ');
+      const answer = await this.peerConnection.createAnswer();
+      console.log('Устанавливаем локальное SDP-описание (ответ)');
+      await this.peerConnection.setLocalDescription(answer);
+
+      console.log('Отправляем SDP-ответ на сервер');
+      this.socket.send(JSON.stringify({
+        type: 'answer',
+        payload: {
+          roomId: this.roomId,
+          answer: this.peerConnection.localDescription,
+          accepted: true
+        }
+      }));
+
+      // Добавляем отложенные ICE-кандидаты, если они есть
+      if (this.pendingCandidates && this.pendingCandidates.length > 0) {
+        console.log(`Добавляем ${this.pendingCandidates.length} отложенных ICE-кандидатов`);
+        for (const candidate of this.pendingCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.error('Ошибка при добавлении отложенного ICE-кандидата:', e);
+          }
+        }
+        this.pendingCandidates = [];
+      }
+
+      this.connected = true;
+      console.log('Звонок принят, SDP-ответ отправлен');
+    } catch (error) {
+      console.error('Ошибка при ответе на звонок:', error);
+      
+      // Уведомляем звонящего об ошибке
+      this.socket.send(JSON.stringify({
+        type: 'answer',
+        payload: {
+          roomId: this.roomId,
+          accepted: false
+        }
+      }));
+      
+      if (this.onError) {
+        this.onError('Не удалось ответить на звонок: ' + error.message);
+      }
+      
+      this.cleanupCall();
+    }
+  }
+
+  // Обработка ответа на звонок
+  async handleCallAccepted(payload) {
+    const { roomId, answer } = payload;
+    
+    if (this.roomId !== roomId || !this.peerConnection) {
+      console.error('Неверный ID комнаты или отсутствует peerConnection');
+      return;
+    }
+    
+    try {
+      console.log('Звонок принят, устанавливаем удаленное SDP-описание');
+      
+      if (!answer) {
+        throw new Error('Отсутствует SDP-ответ');
+      }
+      
+      const remoteDesc = new RTCSessionDescription(answer);
+      await this.peerConnection.setRemoteDescription(remoteDesc);
+      
+      // Добавляем отложенные ICE-кандидаты, если они есть
+      if (this.pendingCandidates && this.pendingCandidates.length > 0) {
+        console.log(`Добавляем ${this.pendingCandidates.length} отложенных ICE-кандидатов`);
+        for (const candidate of this.pendingCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.error('Ошибка при добавлении отложенного ICE-кандидата:', e);
+          }
+        }
+        this.pendingCandidates = [];
+      }
+      
+      this.connected = true;
+      console.log('Звонок принят, удаленное SDP-описание успешно установлено');
+      
+      if (this.onCallAccepted) {
+        this.onCallAccepted();
+      }
+    } catch (error) {
+      console.error('Ошибка при обработке принятия звонка:', error);
+      if (this.onError) {
+        this.onError('Ошибка при установке соединения: ' + error.message);
+      }
+      this.endCall();
+    }
+  }
+
+  // Обработка отказа от звонка
+  handleCallRejected(payload) {
+    const { roomId } = payload;
+    
+    if (this.roomId !== roomId) return;
+    
+    console.log('Звонок отклонен');
+    
+    if (this.onCallRejected) {
+      this.onCallRejected();
+    }
+    
+    this.cleanupCall();
+  }
+
+  // Отправка ICE-кандидата
+  sendIceCandidate(candidate) {
+    if (!this.socket || !this.roomId) return;
+    
+    console.log('Отправка ICE-кандидата на сервер');
+    
+    this.socket.send(JSON.stringify({
+      type: 'ice-candidate',
+      payload: {
+        roomId: this.roomId,
+        candidate
+      }
+    }));
+  }
+
+  // Обработка ICE-кандидата
+  async handleIceCandidate(payload) {
+    const { roomId, candidate } = payload;
+    
+    if (this.roomId !== roomId || !this.peerConnection) {
+      console.warn('Получен ICE-кандидат для неверной комнаты или без peerConnection');
+      return;
+    }
+    
+    try {
+      console.log('Получен ICE-кандидат от удаленного пира:', candidate.candidate.substring(0, 50) + '...');
+      
+      // Убедимся, что peerConnection находится в правильном состоянии
+      if (this.peerConnection.remoteDescription && this.peerConnection.localDescription) {
+        await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log('ICE-кандидат успешно добавлен');
+      } else {
+        console.warn('Не удалось добавить ICE-кандидат: peerConnection не готов');
+        // Сохраняем кандидатов для добавления после установки описаний
+        if (!this.pendingCandidates) {
+          this.pendingCandidates = [];
+        }
+        this.pendingCandidates.push(candidate);
+        console.log('ICE-кандидат добавлен в очередь ожидания');
+      }
+    } catch (error) {
+      console.error('Ошибка при добавлении ICE-кандидата:', error);
+    }
+  }
+
+  // Завершение звонка
+  endCall() {
+    if (!this.socket || !this.roomId) return;
+    
+    // Отправляем сообщение о завершении звонка
+    this.socket.send(JSON.stringify({
+      type: 'hangup',
+      payload: {
+        roomId: this.roomId
+      }
+    }));
+    
+    this.cleanupCall();
+    
+    console.log('Звонок завершен');
+    
+    if (this.onCallEnded) {
+      this.onCallEnded();
+    }
+  }
+
+  // Обработка завершения звонка
+  handleHangup(payload) {
+    const { roomId } = payload;
+    
+    if (this.roomId !== roomId) return;
+    
+    console.log('Собеседник завершил звонок');
+    
+    this.cleanupCall();
+    
+    if (this.onCallEnded) {
+      this.onCallEnded();
+    }
+  }
+
+  // Обработка отключения пользователя
+  handleUserDisconnected(payload) {
+    const { roomId, userId } = payload;
+    
+    if (this.roomId !== roomId) return;
+    
+    console.log(`Пользователь ${userId} отключился`);
+    
+    this.cleanupCall();
+    
+    if (this.onCallEnded) {
+      this.onCallEnded('Собеседник отключился');
+    }
+  }
+
+  // Очистка ресурсов звонка
+  cleanupCall() {
+    // Закрываем peer connection
+    if (this.peerConnection) {
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+    
+    // Останавливаем все медиа-треки
+    if (this.localStream) {
+      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream = null;
+    }
+    
+    this.remoteStream = null;
+    this.roomId = null;
+    this.targetUserId = null;
+    this.connected = false;
+    this.callType = null;
+    this.isInitiator = false;
+    this.dataChannel = null;
+    this.remoteOffer = null;
+    this.pendingCandidates = null;
+  }
+
+  // Закрытие соединения
+  close() {
+    this.cleanupCall();
+    
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
+  }
+}
 
 // Инициализация приложения
 document.addEventListener('DOMContentLoaded', initApp);
@@ -79,6 +721,9 @@ async function initApp() {
       // Создаем тестового пользователя если не в Telegram
       createTestUser();
     }
+    
+    // Инициализируем WebRTC менеджер
+    initWebRTC();
     
     // Загружаем контакты (друзей)
     await loadContacts();
@@ -831,82 +1476,76 @@ console.log("Скрипт приложения загружен успешно")
 
 // Инициализация видеозвонка
 async function initVideoCall() {
-  try {
-    // Запрашиваем доступ к камере и микрофону
-    localStream = await navigator.mediaDevices.getUserMedia({ 
-      video: true, 
-      audio: true 
-    });
-    
-    // Здесь должна быть инициализация RTCPeerConnection и настройка сигнализации
-    // через WebSocket для установки соединения с другим пользователем
-    
-    return true;
-  } catch (error) {
-    console.error('Ошибка при инициализации видеозвонка:', error);
-    showError('Не удалось получить доступ к камере и микрофону. Проверьте разрешения браузера.');
-    return false;
-  }
+  callType = 'video';
+  return true;
 }
 
 // Инициализация аудиозвонка
 async function initAudioCall() {
-  try {
-    // Запрашиваем доступ только к микрофону
-    localStream = await navigator.mediaDevices.getUserMedia({ 
-      video: false, 
-      audio: true 
-    });
-    
-    // Здесь должна быть инициализация RTCPeerConnection и настройка сигнализации
-    // через WebSocket для установки соединения с другим пользователем
-    
-    return true;
-  } catch (error) {
-    console.error('Ошибка при инициализации аудиозвонка:', error);
-    showError('Не удалось получить доступ к микрофону. Проверьте разрешения браузера.');
-    return false;
-  }
+  callType = 'audio';
+  return true;
 }
 
-// Начать видеозвонок
+// Инициировать видеозвонок с контактом
 async function startVideoCall(contactId) {
   if (callInProgress) {
-    showError('У вас уже идет звонок. Пожалуйста, завершите текущий звонок перед началом нового.');
+    showError('У вас уже идет звонок');
     return;
   }
   
+  if (!webrtcManager) {
+    initWebRTC();
+  }
+  
+  // Преобразуем ID в строку для корректного сравнения
+  const contactIdStr = String(contactId);
+  
+  // Находим контакт
+  const contact = contacts.find(c => String(c.id) === contactIdStr);
+  if (!contact) {
+    showError('Контакт не найден');
+    return;
+  }
+  
+  callInProgress = true;
   callType = 'video';
   
-  if (await initVideoCall()) {
-    // Создаем интерфейс видеозвонка
-    showCallInterface();
-    
-    // Инициализируем соединение с контактом
-    // Код для установления соединения через сервер сигнализации WebRTC
-    
-    callInProgress = true;
-  }
+  // Показываем интерфейс звонка
+  showCallInterface();
+  
+  // Начинаем звонок
+  await webrtcManager.startCall(contactIdStr, 'video');
 }
 
-// Начать аудиозвонок
+// Инициировать аудиозвонок с контактом
 async function startAudioCall(contactId) {
   if (callInProgress) {
-    showError('У вас уже идет звонок. Пожалуйста, завершите текущий звонок перед началом нового.');
+    showError('У вас уже идет звонок');
     return;
   }
   
+  if (!webrtcManager) {
+    initWebRTC();
+  }
+  
+  // Преобразуем ID в строку для корректного сравнения
+  const contactIdStr = String(contactId);
+  
+  // Находим контакт
+  const contact = contacts.find(c => String(c.id) === contactIdStr);
+  if (!contact) {
+    showError('Контакт не найден');
+    return;
+  }
+  
+  callInProgress = true;
   callType = 'audio';
   
-  if (await initAudioCall()) {
-    // Создаем интерфейс аудиозвонка
-    showCallInterface();
-    
-    // Инициализируем соединение с контактом
-    // Код для установления соединения через сервер сигнализации WebRTC
-    
-    callInProgress = true;
-  }
+  // Показываем интерфейс звонка
+  showCallInterface();
+  
+  // Начинаем звонок
+  await webrtcManager.startCall(contactIdStr, 'audio');
 }
 
 // Показать интерфейс звонка
@@ -925,7 +1564,7 @@ function showCallInterface() {
   callContactInfo.innerHTML = `
     <div class="call-avatar">${selectedContact.avatar || selectedContact.name.charAt(0)}</div>
     <div class="call-name">${selectedContact.name}</div>
-    <div class="call-status">Соединение...</div>
+    <div class="call-status" id="callStatus">Соединение...</div>
   `;
   
   // Контейнеры для видео
@@ -942,11 +1581,6 @@ function showCallInterface() {
   localVideo.muted = true;
   localVideo.playsInline = true;
   
-  // Подключаем локальный видеопоток
-  if (localStream) {
-    localVideo.srcObject = localStream;
-  }
-  
   const remoteVideoContainer = document.createElement('div');
   remoteVideoContainer.className = 'remote-video-container';
   
@@ -957,8 +1591,8 @@ function showCallInterface() {
   
   localVideoContainer.appendChild(localVideo);
   remoteVideoContainer.appendChild(remoteVideo);
-  videoContainer.appendChild(localVideoContainer);
   videoContainer.appendChild(remoteVideoContainer);
+  videoContainer.appendChild(localVideoContainer);
   
   // Кнопки управления звонком
   const callControls = document.createElement('div');
@@ -966,11 +1600,13 @@ function showCallInterface() {
   
   const muteBtn = document.createElement('button');
   muteBtn.className = 'call-control-btn';
+  muteBtn.id = 'muteBtn';
   muteBtn.innerHTML = '🔇';
   muteBtn.title = 'Выключить микрофон';
   
   const videoBtn = document.createElement('button');
   videoBtn.className = 'call-control-btn';
+  videoBtn.id = 'videoBtn';
   videoBtn.innerHTML = '📷';
   videoBtn.title = 'Выключить камеру';
   videoBtn.style.display = callType === 'video' ? 'block' : 'none';
@@ -1001,13 +1637,13 @@ function showCallInterface() {
 
 // Переключение микрофона
 function toggleMute() {
-  if (localStream) {
-    const audioTracks = localStream.getAudioTracks();
+  if (webrtcManager && webrtcManager.localStream) {
+    const audioTracks = webrtcManager.localStream.getAudioTracks();
     if (audioTracks.length > 0) {
       const enabled = !audioTracks[0].enabled;
       audioTracks[0].enabled = enabled;
       
-      const muteBtn = document.querySelector('.call-control-btn');
+      const muteBtn = document.getElementById('muteBtn');
       if (muteBtn) {
         muteBtn.innerHTML = enabled ? '🔇' : '🔈';
         muteBtn.title = enabled ? 'Выключить микрофон' : 'Включить микрофон';
@@ -1018,13 +1654,13 @@ function toggleMute() {
 
 // Переключение камеры
 function toggleVideo() {
-  if (localStream) {
-    const videoTracks = localStream.getVideoTracks();
+  if (webrtcManager && webrtcManager.localStream) {
+    const videoTracks = webrtcManager.localStream.getVideoTracks();
     if (videoTracks.length > 0) {
       const enabled = !videoTracks[0].enabled;
       videoTracks[0].enabled = enabled;
       
-      const videoBtn = document.querySelectorAll('.call-control-btn')[1];
+      const videoBtn = document.getElementById('videoBtn');
       if (videoBtn) {
         videoBtn.innerHTML = enabled ? '📷' : '📷❌';
         videoBtn.title = enabled ? 'Выключить камеру' : 'Включить камеру';
@@ -1035,22 +1671,192 @@ function toggleVideo() {
 
 // Завершение звонка
 function endCall() {
-  // Остановка стримов
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-    localStream = null;
+  if (webrtcManager) {
+    webrtcManager.endCall();
   }
   
-  // Закрытие соединения
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
+  resetCallUI();
+}
+
+// Инициализация WebRTC
+function initWebRTC() {
+  if (webrtcManager) return;
   
-  // Удаление интерфейса звонка
+  webrtcManager = new WebRTCManager();
+  
+  if (currentUser && currentUser.id) {
+    webrtcManager.init(currentUser.id);
+    
+    // Устанавливаем обработчики событий
+    webrtcManager.onIncomingCall = (callerId, roomId, callType) => {
+      // Находим информацию о звонящем
+      // Преобразуем ID звонящего и ID контактов в строки для корректного сравнения
+      const callerIdStr = String(callerId);
+      const callerContact = contacts.find(c => String(c.id) === callerIdStr);
+      let callerName = 'Неизвестный';
+      
+      if (callerContact) {
+        callerName = callerContact.firstName || callerContact.name || 'Контакт';
+      }
+      
+      console.log(`Входящий звонок от ${callerName} (ID: ${callerIdStr}), доступные контакты:`, 
+                  contacts.map(c => `${c.firstName || c.name} (ID: ${c.id})`).join(', '));
+      
+      showIncomingCallDialog(callerName, callerIdStr, callType);
+    };
+    
+    webrtcManager.onCallAccepted = () => {
+      console.log('Звонок принят, соединение установлено');
+    };
+    
+    webrtcManager.onCallRejected = () => {
+      showError('Звонок отклонен');
+      resetCallUI();
+    };
+    
+    webrtcManager.onCallEnded = (reason) => {
+      let message = 'Звонок завершен';
+      if (reason) {
+        message = reason;
+      }
+      console.log(message);
+      resetCallUI();
+    };
+    
+    webrtcManager.onLocalStreamAvailable = (stream) => {
+      const localVideo = document.getElementById('localVideo');
+      if (localVideo) {
+        localVideo.srcObject = stream;
+      }
+    };
+    
+    webrtcManager.onRemoteStreamAvailable = (stream) => {
+      const remoteVideo = document.getElementById('remoteVideo');
+      if (remoteVideo) {
+        remoteVideo.srcObject = stream;
+      }
+    };
+    
+    webrtcManager.onError = (message) => {
+      showError(message);
+      resetCallUI();
+    };
+    
+    console.log('WebRTC менеджер инициализирован');
+  } else {
+    console.warn('Невозможно инициализировать WebRTC: отсутствует ID пользователя');
+  }
+}
+
+// Показать диалог входящего звонка
+function showIncomingCallDialog(callerName, callerId, callType) {
+  try {
+    // Проверяем, нет ли уже диалога звонка
+    const existingDialog = document.getElementById('incomingCallDialog');
+    if (existingDialog) {
+      console.log('Диалог входящего звонка уже отображается, удаляем старый');
+      existingDialog.remove();
+    }
+    
+    const callDialog = document.createElement('div');
+    callDialog.className = 'incoming-call-dialog';
+    callDialog.id = 'incomingCallDialog';
+    
+    callDialog.innerHTML = `
+      <div class="incoming-call-content">
+        <div class="incoming-call-header">Входящий ${callType === 'video' ? 'видео' : 'аудио'}звонок</div>
+        <div class="incoming-call-name">${callerName}</div>
+        <div class="incoming-call-controls">
+          <button id="acceptCallBtn" class="accept-call-btn">Принять</button>
+          <button id="rejectCallBtn" class="reject-call-btn">Отклонить</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(callDialog);
+    
+    // Обработчики кнопок
+    const acceptBtn = document.getElementById('acceptCallBtn');
+    const rejectBtn = document.getElementById('rejectCallBtn');
+    
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', () => {
+        acceptIncomingCall(callType);
+        callDialog.remove();
+      });
+    }
+    
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', () => {
+        rejectIncomingCall();
+        callDialog.remove();
+      });
+    }
+    
+    console.log(`Отображен диалог входящего ${callType} звонка от ${callerName} (${callerId})`);
+  } catch (error) {
+    console.error('Ошибка при отображении диалога входящего звонка:', error);
+    showError('Ошибка при обработке входящего звонка');
+  }
+}
+
+// Принять входящий звонок
+async function acceptIncomingCall(callType) {
+  try {
+    if (callInProgress) {
+      showError('У вас уже идет звонок. Невозможно принять входящий звонок.');
+      return;
+    }
+    
+    callInProgress = true;
+    console.log(`Принятие ${callType} звонка...`);
+    
+    // Проверяем, инициализирован ли WebRTC
+    if (!webrtcManager) {
+      console.log('WebRTC менеджер не инициализирован, создаем новый');
+      initWebRTC();
+    }
+    
+    // Проверяем, действительно ли WebRTC менеджер инициализирован
+    if (!webrtcManager) {
+      throw new Error('Не удалось инициализировать WebRTC менеджер');
+    }
+    
+    // Проверяем, существует ли roomId
+    if (!webrtcManager.roomId) {
+      throw new Error('Отсутствует ID комнаты для звонка');
+    }
+    
+    // Создаем интерфейс звонка
+    showCallInterface();
+    
+    // Отвечаем на звонок
+    await webrtcManager.answerCall(true);
+  } catch (error) {
+    console.error('Ошибка при принятии входящего звонка:', error);
+    showError(`Не удалось ответить на звонок: ${error.message}`);
+    resetCallUI();
+    callInProgress = false;
+  }
+}
+
+// Отклонить входящий звонок
+function rejectIncomingCall() {
+  if (webrtcManager) {
+    webrtcManager.answerCall(false);
+  }
+}
+
+// Очистка UI после звонка
+function resetCallUI() {
   const callModal = document.getElementById('callModal');
   if (callModal) {
     callModal.remove();
+  }
+  
+  const incomingCallDialog = document.getElementById('incomingCallDialog');
+  if (incomingCallDialog) {
+    incomingCallDialog.remove();
   }
   
   callInProgress = false;

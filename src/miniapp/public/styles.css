@@ -674,4 +674,180 @@ body, html {
   padding: 10px 20px;
   font-size: 16px;
   cursor: pointer;
+}
+
+/* Модальное окно для звонка */
+.call-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.call-content {
+  width: 90%;
+  max-width: 500px;
+  background-color: var(--tg-theme-secondary-bg-color);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.call-contact-info {
+  padding: 20px;
+  text-align: center;
+}
+
+.call-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 32px;
+  margin: 0 auto 10px;
+}
+
+.call-name {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.call-status {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  height: 0;
+  padding-bottom: 75%; /* 4:3 соотношение */
+  background-color: #000;
+  overflow: hidden;
+}
+
+.remote-video-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.local-video-container {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 30%;
+  height: 30%;
+  border: 2px solid white;
+  border-radius: 5px;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.remote-video-container video,
+.local-video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.call-controls {
+  display: flex;
+  justify-content: center;
+  padding: 15px;
+  gap: 20px;
+}
+
+.call-control-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background-color: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+  font-size: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: none;
+  cursor: pointer;
+}
+
+.call-control-btn.end-call {
+  background-color: #ff4d4f;
+}
+
+/* Диалог входящего звонка */
+.incoming-call-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.incoming-call-content {
+  width: 90%;
+  max-width: 350px;
+  background-color: var(--tg-theme-secondary-bg-color);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  text-align: center;
+}
+
+.incoming-call-header {
+  font-size: 18px;
+  margin-bottom: 15px;
+  color: var(--tg-theme-hint-color);
+}
+
+.incoming-call-name {
+  font-size: 22px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.incoming-call-controls {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.accept-call-btn, .reject-call-btn {
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+}
+
+.accept-call-btn {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.reject-call-btn {
+  background-color: #ff4d4f;
+  color: white;
 } 

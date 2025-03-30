@@ -3,6 +3,8 @@ const { Bot, InlineKeyboard, BotError, GrammyError, HttpError } = require('gramm
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
+const http = require('http');
+const signalingServer = require('./signaling-server');
 
 // TODO: Временное хранилище пользователей (в реальном приложении - БД)
 const users = new Map();
@@ -69,9 +71,13 @@ bot.catch((err) => {
   }
 });
 
-// Set up express server for the mini-app
+// Создаем HTTP сервер с Express
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+
+// Инициализируем сервер сигнализации WebRTC
+signalingServer.init(server);
 
 // Разбор JSON и URL-encoded данных
 app.use(bodyParser.json());
@@ -122,9 +128,12 @@ app.post('/api/users/register', (req, res) => {
       });
     }
     
+    // Преобразуем ID в строку для единообразия и корректного хранения
+    const userId = String(userData.id);
+    
     // Сохраняем или обновляем пользователя
-    users.set(userData.id.toString(), {
-      id: userData.id.toString(),
+    users.set(userId, {
+      id: userId,
       firstName: userData.firstName || '',
       lastName: userData.lastName || '',
       username: userData.username || '',
@@ -134,11 +143,11 @@ app.post('/api/users/register', (req, res) => {
     });
     
     // Инициализируем список друзей, если он еще не создан
-    if (!friendships.has(userData.id.toString())) {
-      friendships.set(userData.id.toString(), new Set());
+    if (!friendships.has(userId)) {
+      friendships.set(userId, new Set());
     }
     
-    console.log(`Пользователь зарегистрирован/обновлен: ${userData.id} (${userData.username || 'без имени пользователя'})`);
+    console.log(`Пользователь зарегистрирован/обновлен: ${userId} (${userData.username || 'без имени пользователя'})`);
     
     res.json({ 
       success: true, 
@@ -251,7 +260,11 @@ app.get('/api/users/:userId/friends', (req, res) => {
 // API для добавления друга
 app.post('/api/users/:userId/friends/:friendId', (req, res) => {
   try {
-    const { userId, friendId } = req.params;
+    let { userId, friendId } = req.params;
+    
+    // Преобразуем ID в строки для единообразия
+    userId = String(userId);
+    friendId = String(friendId);
     
     // Проверяем, существуют ли оба пользователя
     if (!users.has(userId)) {
@@ -307,7 +320,11 @@ app.post('/api/users/:userId/friends/:friendId', (req, res) => {
 // API для удаления друга
 app.delete('/api/users/:userId/friends/:friendId', (req, res) => {
   try {
-    const { userId, friendId } = req.params;
+    let { userId, friendId } = req.params;
+    
+    // Преобразуем ID в строки для единообразия
+    userId = String(userId);
+    friendId = String(friendId);
     
     // Проверяем, существуют ли оба пользователя и связь дружбы
     if (!friendships.has(userId) || !friendships.has(friendId)) {
@@ -454,10 +471,11 @@ app.get('/', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
-  console.log(`Mini-app сервер запущен на порту ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Сервер запущен на порту ${PORT}`);
   console.log(`API доступно по адресу: http://localhost:${PORT}/api/`);
   console.log(`Мини-приложение доступно по адресу: http://localhost:${PORT}/miniapp/`);
+  console.log(`Сервер сигнализации WebRTC активен`);
 });
 
 // Start the bot
