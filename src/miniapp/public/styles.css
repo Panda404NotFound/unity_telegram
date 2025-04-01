@@ -530,6 +530,61 @@ body, html {
   color: var(--tg-theme-button-text-color);
 }
 
+/* Стили для настроек перевода */
+.translation-settings {
+  padding: var(--spacing-md);
+}
+
+.settings-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.settings-group h3 {
+  margin-bottom: var(--spacing-sm);
+  font-size: 16px;
+  color: var(--tg-theme-text-color);
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"] {
+  margin-right: var(--spacing-sm);
+}
+
+select, input[type="password"] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: var(--border-radius);
+  background-color: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font-size: 14px;
+}
+
+.api-key-note {
+  margin-top: var(--spacing-sm);
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+
+#saveSettingsBtn {
+  width: 100%;
+  margin-top: var(--spacing-md);
+  padding: 12px;
+  font-size: 16px;
+  border-radius: var(--border-radius);
+}
+
 .secondary-btn {
   background-color: var(--tg-theme-secondary-bg-color);
   color: var(--color-danger);

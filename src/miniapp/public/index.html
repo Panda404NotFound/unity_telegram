@@ -96,6 +96,66 @@
         </div>
       </div>
     </div>
+    
+    <!-- Модальное окно настроек перевода -->
+    <div id="translationSettingsModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <div class="translation-settings">
+          <h2>Настройки перевода</h2>
+          
+          <div class="settings-group">
+            <h3>Язык перевода</h3>
+            <div class="radio-group">
+              <label>
+                <input type="radio" name="targetLanguage" value="ru" checked>
+                Русский
+              </label>
+              <label>
+                <input type="radio" name="targetLanguage" value="en">
+                Английский
+              </label>
+            </div>
+          </div>
+          
+          <div class="settings-group">
+            <h3>Модель перевода</h3>
+            <select id="translationModel">
+              <option value="gpt-4o-mini-realtime-preview">GPT-4o mini Realtime (быстрее)</option>
+              <option value="gpt-4o-realtime-preview">GPT-4o Realtime (точнее)</option>
+            </select>
+          </div>
+          
+          <div class="settings-group">
+            <h3>Голос синтеза</h3>
+            <select id="translationVoice">
+              <option value="alloy">Alloy</option>
+              <option value="echo">Echo</option>
+              <option value="fable">Fable</option>
+              <option value="onyx">Onyx</option>
+              <option value="nova">Nova</option>
+              <option value="shimmer">Shimmer</option>
+            </select>
+          </div>
+          
+          <div class="settings-group">
+            <h3>Дополнительно</h3>
+            <label>
+              <input type="checkbox" id="useVAD" checked>
+              Использовать VAD (определение активности голоса)
+            </label>
+          </div>
+          
+          <div class="settings-group">
+            <h3>OpenAI API ключ</h3>
+            <input type="password" id="openaiApiKey" placeholder="Введите ваш API ключ OpenAI">
+            <p class="api-key-note">Ключ будет храниться только на вашем устройстве.</p>
+          </div>
+          
+          <button id="saveSettingsBtn" class="primary-btn">Сохранить настройки</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Скрипт для подключения звонков WebRTC -->

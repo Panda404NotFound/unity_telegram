@@ -465,6 +465,60 @@ app.get('/api/messages/:userId', (req, res) => {
   res.json(messages);
 });
 
+// API для получения конфигурации OpenAI
+app.get('/api/openai-config', (req, res) => {
+  try {
+    // Проверяем наличие API ключа в переменных окружения
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      console.warn('Внимание: API ключ OpenAI не настроен в .env файле');
+    }
+    
+    // Возвращаем только информацию о наличии ключа
+    res.json({
+      success: true,
+      data: {
+        hasApiKey: !!apiKey
+      }
+    });
+  } catch (error) {
+    console.error('Ошибка при получении конфигурации OpenAI:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера'
+    });
+  }
+});
+
+// API для авторизации запросов к OpenAI
+app.post('/api/openai-auth', (req, res) => {
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({
+        success: false,
+        error: 'API ключ OpenAI не настроен на сервере'
+      });
+    }
+    
+    // Возвращаем API ключ для авторизации
+    res.json({
+      success: true,
+      data: {
+        api_key: apiKey
+      }
+    });
+  } catch (error) {
+    console.error('Ошибка при авторизации запроса OpenAI:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Внутренняя ошибка сервера'
+    });
+  }
+});
+
 // Корневой маршрут теперь перенаправляет в мини-приложение
 app.get('/', (req, res) => {
   res.redirect('/miniapp');

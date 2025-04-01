@@ -31,7 +31,7 @@ const searchInput = document.getElementById('searchInput');
 const searchButton = document.getElementById('searchButton');
 const searchResults = document.getElementById('searchResults');
 
-// Элементы модального окна
+// Элементы модального окна пользователя
 const userInfoModal = document.getElementById('userInfoModal');
 const modalUserAvatar = document.getElementById('modalUserAvatar');
 const modalUserName = document.getElementById('modalUserName');
@@ -39,7 +39,17 @@ const modalUsername = document.getElementById('modalUsername');
 const addFriendBtn = document.getElementById('addFriendBtn');
 const removeFriendBtn = document.getElementById('removeFriendBtn');
 const startChatBtn = document.getElementById('startChatBtn');
-const closeModal = document.querySelector('.close-modal');
+const closeUserModal = userInfoModal.querySelector('.close-modal');
+
+// Элементы модального окна настроек перевода
+const translationSettingsModal = document.getElementById('translationSettingsModal');
+const closeSettingsModal = translationSettingsModal.querySelector('.close-modal');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const targetLanguageInputs = document.querySelectorAll('input[name="targetLanguage"]');
+const translationModelSelect = document.getElementById('translationModel');
+const translationVoiceSelect = document.getElementById('translationVoice');
+const useVADCheckbox = document.getElementById('useVAD');
+const openaiApiKeyInput = document.getElementById('openaiApiKey');
 
 // Переменные состояния
 let currentUser = null;
@@ -725,6 +735,9 @@ async function initApp() {
     // Инициализируем WebRTC менеджер
     initWebRTC();
     
+    // Инициализируем модуль перевода
+    initTranslation();
+    
     // Загружаем контакты (друзей)
     await loadContacts();
     
@@ -1178,8 +1191,9 @@ if (searchInput) {
 }
 
 // Закрытие модального окна при клике на крестик
-if (closeModal) {
-  closeModal.addEventListener('click', hideUserModal);
+if (closeUserModal) {
+  closeUserModal.addEventListener('click', hideUserModal);
+  console.log('Настроен обработчик закрытия модального окна');
 }
 
 // Закрытие модального окна при клике вне его содержимого
@@ -1468,6 +1482,140 @@ function showError(message) {
     tg.showAlert(message);
   } else {
     alert(message);
+  }
+}
+
+// Функции для работы с настройками перевода
+
+/**
+ * Показывает модальное окно настроек перевода
+ */
+function showTranslationSettings() {
+  try {
+    // Загружаем текущие настройки из модуля settings.js
+    const settings = TranslationSettings.getInstance();
+    
+    // Устанавливаем текущий язык
+    const targetLanguage = settings.getTargetLanguage();
+    targetLanguageInputs.forEach(input => {
+      input.checked = input.value === targetLanguage;
+    });
+    
+    // Устанавливаем текущую модель
+    translationModelSelect.value = settings.getModel() || 'gpt-4o-mini-realtime-preview';
+    
+    // Устанавливаем текущий голос
+    translationVoiceSelect.value = settings.getVoice() || 'alloy';
+    
+    // Устанавливаем настройку VAD
+    useVADCheckbox.checked = settings.getUseVAD() !== false;
+    
+    // Загружаем API ключ, если он есть в локальном хранилище
+    const savedApiKey = localStorage.getItem('openai_api_key');
+    if (savedApiKey) {
+      openaiApiKeyInput.value = savedApiKey;
+    }
+    
+    // Показываем модальное окно
+    translationSettingsModal.style.display = 'block';
+    
+  } catch (error) {
+    console.error('Ошибка при открытии настроек перевода:', error);
+    showError('Не удалось загрузить настройки перевода');
+  }
+}
+
+/**
+ * Скрывает модальное окно настроек перевода
+ */
+function hideTranslationSettings() {
+  translationSettingsModal.style.display = 'none';
+}
+
+/**
+ * Сохраняет настройки перевода
+ */
+function saveTranslationSettings() {
+  try {
+    const settings = TranslationSettings.getInstance();
+    
+    // Получаем выбранный язык
+    let selectedLanguage = 'ru';
+    targetLanguageInputs.forEach(input => {
+      if (input.checked) {
+        selectedLanguage = input.value;
+      }
+    });
+    
+    // Сохраняем настройки
+    settings.setTargetLanguage(selectedLanguage);
+    settings.setModel(translationModelSelect.value);
+    settings.setVoice(translationVoiceSelect.value);
+    settings.setUseVAD(useVADCheckbox.checked);
+    settings.saveSettings();
+    
+    // Сохраняем API ключ в локальном хранилище
+    if (openaiApiKeyInput.value.trim() !== '') {
+      localStorage.setItem('openai_api_key', openaiApiKeyInput.value.trim());
+    }
+    
+    // Сообщаем об успешном сохранении
+    showError('Настройки успешно сохранены');
+    
+    // Скрываем модальное окно
+    hideTranslationSettings();
+    
+    // Обновляем настройки в менеджере перевода, если он существует
+    if (window.translationManager) {
+      window.translationManager.updateSettings();
+    }
+    
+  } catch (error) {
+    console.error('Ошибка при сохранении настроек перевода:', error);
+    showError('Не удалось сохранить настройки перевода');
+  }
+}
+
+/**
+ * Инициализация модуля перевода
+ */
+function initTranslation() {
+  try {
+    // Загружаем настройки перевода
+    const settings = TranslationSettings.getInstance();
+    settings.loadSettings();
+    
+    // Инициализируем менеджер перевода
+    window.translationManager = new TranslationManager();
+    
+    // Добавляем кнопку настроек перевода в интерфейс
+    const appHeader = document.querySelector('.app-container');
+    if (appHeader) {
+      const settingsButton = document.createElement('button');
+      settingsButton.id = 'translationSettingsBtn';
+      settingsButton.className = 'settings-btn';
+      settingsButton.innerHTML = '↻ Настройки перевода';
+      settingsButton.addEventListener('click', showTranslationSettings);
+      
+      // Добавляем кнопку в начало контейнера
+      appHeader.insertBefore(settingsButton, appHeader.firstChild);
+    }
+    
+    // Добавляем обработчики событий для модального окна настроек
+    closeSettingsModal.addEventListener('click', hideTranslationSettings);
+    saveSettingsBtn.addEventListener('click', saveTranslationSettings);
+    
+    // Закрытие модального окна при клике вне его
+    window.addEventListener('click', (event) => {
+      if (event.target === translationSettingsModal) {
+        hideTranslationSettings();
+      }
+    });
+    
+    console.log('Модуль перевода успешно инициализирован');
+    
+  } catch (error) {
+    console.error('Ошибка при инициализации модуля перевода:', error);
   }
 }
 
