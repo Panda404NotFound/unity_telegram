@@ -27,9 +27,17 @@ const tabButtons = document.querySelectorAll('.tab-btn');
 const tabContents = document.querySelectorAll('.tab-content');
 const friendsTab = document.getElementById('friendsTab');
 const searchTab = document.getElementById('searchTab');
+const settingsTab = document.getElementById('settingsTab');
 const searchInput = document.getElementById('searchInput');
 const searchButton = document.getElementById('searchButton');
 const searchResults = document.getElementById('searchResults');
+
+// Элементы настроек
+const sourceLanguageInputs = document.querySelectorAll('input[name="sourceLanguage"]');
+const translationVoiceSelect = document.getElementById('translationVoice');
+const muteOriginalCheckbox = document.getElementById('muteOriginalCheckbox');
+const useVADCheckbox = document.getElementById('useVADCheckbox');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 
 // Элементы модального окна пользователя
 const userInfoModal = document.getElementById('userInfoModal');
@@ -44,12 +52,6 @@ const closeUserModal = userInfoModal.querySelector('.close-modal');
 // Элементы модального окна настроек перевода
 const translationSettingsModal = document.getElementById('translationSettingsModal');
 const closeSettingsModal = translationSettingsModal.querySelector('.close-modal');
-const saveSettingsBtn = document.getElementById('saveSettingsBtn');
-const targetLanguageInputs = document.querySelectorAll('input[name="targetLanguage"]');
-const translationModelSelect = document.getElementById('translationModel');
-const translationVoiceSelect = document.getElementById('translationVoice');
-const useVADCheckbox = document.getElementById('useVAD');
-const openaiApiKeyInput = document.getElementById('openaiApiKey');
 
 // Переменные состояния
 let currentUser = null;
@@ -63,6 +65,15 @@ let peerConnection = null;
 let callInProgress = false;
 let callType = null; // 'audio' или 'video'
 let webrtcManager = null; // Менеджер WebRTC
+
+// Переменные для перевода
+let translateService = null; // Сервис перевода
+let translationSettings = {
+  sourceLanguage: 'ru',
+  voice: 'alloy',
+  muteOriginal: true,
+  useVAD: true
+};
 
 // Класс для управления WebRTC соединениями
 class WebRTCManager {
@@ -1513,7 +1524,7 @@ function showTranslationSettings() {
     // Загружаем API ключ, если он есть в локальном хранилище
     const savedApiKey = localStorage.getItem('openai_api_key');
     if (savedApiKey) {
-      openaiApiKeyInput.value = savedApiKey;
+      apiKeyInput.value = savedApiKey;
     }
     
     // Показываем модальное окно
@@ -1555,8 +1566,8 @@ function saveTranslationSettings() {
     settings.saveSettings();
     
     // Сохраняем API ключ в локальном хранилище
-    if (openaiApiKeyInput.value.trim() !== '') {
-      localStorage.setItem('openai_api_key', openaiApiKeyInput.value.trim());
+    if (apiKeyInput.value.trim() !== '') {
+      localStorage.setItem('openai_api_key', apiKeyInput.value.trim());
     }
     
     // Сообщаем об успешном сохранении
@@ -1826,6 +1837,202 @@ function endCall() {
   resetCallUI();
 }
 
+// Очистка UI после звонка
+function resetCallUI() {
+  const callModal = document.getElementById('callModal');
+  if (callModal) {
+    callModal.remove();
+  }
+  
+  const incomingCallDialog = document.getElementById('incomingCallDialog');
+  if (incomingCallDialog) {
+    incomingCallDialog.remove();
+  }
+  
+  callInProgress = false;
+  callType = null;
+} 
+
+// Функция для инициализации перевода речи в WebRTC звонке
+function initTranslationInCall(stream, isOutgoingCall) {
+  console.log('Инициализация перевода речи в звонке...');
+  
+  // Проверяем инициализацию сервиса перевода
+  if (!window.translateService || !window.translateService.initialized) {
+    console.error('Сервис перевода не инициализирован');
+    return;
+  }
+  
+  // Определяем направление перевода на основе типа звонка
+  // Для исходящего звонка: переводим нашу речь на язык собеседника
+  // Для входящего звонка: переводим речь собеседника на наш язык
+  const sourceLanguage = isOutgoingCall ? translationSettings.sourceLanguage : 
+                         (translationSettings.sourceLanguage === 'ru' ? 'en' : 'ru');
+  const targetLanguage = isOutgoingCall ? 
+                         (translationSettings.sourceLanguage === 'ru' ? 'en' : 'ru') : 
+                         translationSettings.sourceLanguage;
+  
+  console.log(`Настройка перевода для ${isOutgoingCall ? 'исходящего' : 'входящего'} звонка`);
+  console.log(`Язык источника: ${sourceLanguage}, Язык перевода: ${targetLanguage}`);
+  
+  // Конфигурация для перевода
+  const translationConfig = {
+    sourceLanguage: sourceLanguage,
+    targetLanguage: targetLanguage,
+    model: 'gpt-4o-mini-realtime-preview', // Используем фиксированную модель
+    voice: translationSettings.voice,
+    muteOriginal: translationSettings.muteOriginal,
+    useVAD: translationSettings.useVAD
+  };
+  
+  console.log('Конфигурация перевода:', translationConfig);
+  
+  // Обновляем настройки в сервисе перевода
+  window.translateService.updateSettings(translationConfig);
+  
+  // Подключаем аудио поток к сервисе перевода
+  window.translateService.connect(stream);
+  
+  // Включаем перевод
+  window.translateService.startTranslation();
+  console.log('Перевод речи запущен');
+}
+
+// Обработчики событий для вкладок
+tabButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    // Скрываем все вкладки
+    tabContents.forEach(tab => tab.classList.remove('active'));
+    tabButtons.forEach(btn => btn.classList.remove('active'));
+    
+    // Показываем выбранную вкладку
+    const tabName = button.getAttribute('data-tab');
+    button.classList.add('active');
+    
+    if (tabName === 'friends') {
+      friendsTab.classList.add('active');
+    } else if (tabName === 'search') {
+      searchTab.classList.add('active');
+    } else if (tabName === 'settings') {
+      settingsTab.classList.add('active');
+      // Загружаем настройки при переходе на вкладку настроек
+      loadTranslationSettings();
+    }
+  });
+});
+
+// Обработчик сохранения настроек
+if (saveSettingsBtn) {
+  saveSettingsBtn.addEventListener('click', saveTranslationSettings);
+}
+
+// Обработчики звонков с учетом перевода
+if (audioCallBtn) {
+  audioCallBtn.addEventListener('click', () => {
+    if (selectedContact) {
+      startAudioCall(selectedContact.id);
+    }
+  });
+}
+
+if (videoCallBtn) {
+  videoCallBtn.addEventListener('click', () => {
+    if (selectedContact) {
+      startVideoCall(selectedContact.id);
+    }
+  });
+}
+
+// Функция для загрузки настроек перевода из localStorage
+function loadTranslationSettings() {
+  try {
+    const savedSettings = localStorage.getItem('translation_settings');
+    if (savedSettings) {
+      translationSettings = JSON.parse(savedSettings);
+      console.log('Настройки перевода загружены:', translationSettings);
+    }
+    
+    // Заполняем форму настроек сохраненными значениями
+    sourceLanguageInputs.forEach(input => {
+      if(input.value === translationSettings.sourceLanguage) {
+        input.checked = true;
+      }
+    });
+    
+    if(translationVoiceSelect) {
+      translationVoiceSelect.value = translationSettings.voice;
+    }
+    
+    if(muteOriginalCheckbox) {
+      muteOriginalCheckbox.checked = translationSettings.muteOriginal;
+    }
+    
+    if(useVADCheckbox) {
+      useVADCheckbox.checked = translationSettings.useVAD;
+    }
+  } catch (error) {
+    console.error('Ошибка при загрузке настроек перевода:', error);
+  }
+}
+
+// Функция для сохранения настроек перевода в localStorage
+function saveTranslationSettings() {
+  try {
+    // Получаем значения из формы
+    sourceLanguageInputs.forEach(input => {
+      if(input.checked) {
+        translationSettings.sourceLanguage = input.value;
+      }
+    });
+    
+    if(translationVoiceSelect) {
+      translationSettings.voice = translationVoiceSelect.value;
+    }
+    
+    if(muteOriginalCheckbox) {
+      translationSettings.muteOriginal = muteOriginalCheckbox.checked;
+    }
+    
+    if(useVADCheckbox) {
+      translationSettings.useVAD = useVADCheckbox.checked;
+    }
+    
+    // Автоматически устанавливаем targetLanguage как противоположный sourceLanguage
+    translationSettings.targetLanguage = translationSettings.sourceLanguage === 'ru' ? 'en' : 'ru';
+    
+    // Сохраняем настройки в localStorage
+    localStorage.setItem('translation_settings', JSON.stringify(translationSettings));
+    console.log('Настройки перевода сохранены:', translationSettings);
+    
+    // Обновляем настройки в сервисе перевода, если он инициализирован
+    if(window.translateService && window.translateService.initialized) {
+      window.translateService.updateSettings(translationSettings);
+    }
+    
+    // Показываем сообщение об успешном сохранении
+    showNotification('Настройки перевода сохранены');
+  } catch (error) {
+    console.error('Ошибка при сохранении настроек перевода:', error);
+    showError('Не удалось сохранить настройки');
+  }
+}
+
+// Показывает уведомление
+function showNotification(message) {
+  const notification = document.createElement('div');
+  notification.className = 'notification';
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  // Удаляем уведомление через 3 секунды
+  setTimeout(() => {
+    notification.classList.add('hide');
+    setTimeout(() => {
+      document.body.removeChild(notification);
+    }, 300);
+  }, 3000);
+}
+
 // Инициализация WebRTC
 function initWebRTC() {
   if (webrtcManager) return;
@@ -1949,43 +2156,56 @@ function showIncomingCallDialog(callerName, callerId, callType) {
 }
 
 // Принять входящий звонок
-async function acceptIncomingCall(callType) {
-  try {
-    if (callInProgress) {
-      showError('У вас уже идет звонок. Невозможно принять входящий звонок.');
-      return;
-    }
-    
-    callInProgress = true;
-    console.log(`Принятие ${callType} звонка...`);
-    
-    // Проверяем, инициализирован ли WebRTC
-    if (!webrtcManager) {
-      console.log('WebRTC менеджер не инициализирован, создаем новый');
-      initWebRTC();
-    }
-    
-    // Проверяем, действительно ли WebRTC менеджер инициализирован
-    if (!webrtcManager) {
-      throw new Error('Не удалось инициализировать WebRTC менеджер');
-    }
-    
-    // Проверяем, существует ли roomId
-    if (!webrtcManager.roomId) {
-      throw new Error('Отсутствует ID комнаты для звонка');
-    }
-    
-    // Создаем интерфейс звонка
-    showCallInterface();
-    
-    // Отвечаем на звонок
-    await webrtcManager.answerCall(true);
-  } catch (error) {
-    console.error('Ошибка при принятии входящего звонка:', error);
-    showError(`Не удалось ответить на звонок: ${error.message}`);
-    resetCallUI();
-    callInProgress = false;
+async function acceptIncomingCall(incomingCallType) {
+  console.log(`Принятие входящего ${incomingCallType} звонка...`);
+  
+  if (!webrtcManager) {
+    console.error("WebRTC менеджер не инициализирован");
+    return;
   }
+  
+  callType = incomingCallType;
+  
+  // Запрашиваем доступ к устройствам в зависимости от типа звонка
+  let mediaConstraints = {
+    audio: true,
+    video: incomingCallType === 'video'
+  };
+  
+  navigator.mediaDevices.getUserMedia(mediaConstraints)
+    .then(stream => {
+      localStream = stream;
+      
+      // Скрываем диалог входящего звонка
+      const incomingCallDialog = document.getElementById('incomingCallDialog');
+      if (incomingCallDialog) {
+        incomingCallDialog.remove();
+      }
+      
+      // Показываем интерфейс звонка
+      showCallInterface();
+      
+      // Принимаем звонок с помощью WebRTC менеджера
+      webrtcManager.acceptCall(stream);
+      
+      // Обновляем статус звонка
+      callInProgress = true;
+      
+      // Инициализируем перевод речи
+      // При входящем звонке нам нужно дождаться установки соединения
+      // и получения удаленного потока для перевода
+      // Это происходит в обработчике onRemoteStreamAvailable
+      webrtcManager.onRemoteStreamAvailable = (remoteStream) => {
+        console.log('Удаленный поток доступен, инициализация перевода');
+        // Инициализируем перевод речи для входящего звонка
+        initTranslationInCall(remoteStream, false);
+      };
+    })
+    .catch(error => {
+      console.error("Ошибка доступа к медиа устройствам:", error);
+      showError("Не удалось получить доступ к камере или микрофону");
+      webrtcManager.rejectCall();
+    });
 }
 
 // Отклонить входящий звонок
@@ -1995,18 +2215,32 @@ function rejectIncomingCall() {
   }
 }
 
-// Очистка UI после звонка
-function resetCallUI() {
-  const callModal = document.getElementById('callModal');
-  if (callModal) {
-    callModal.remove();
+// Остановка перевода речи
+function stopTranslation() {
+  console.log('Остановка перевода речи...');
+  
+  if (window.translateService && window.translateService.translating) {
+    window.translateService.stopTranslation();
+    console.log('Перевод речи остановлен');
+  }
+}
+
+// Завершение звонка
+function endCall() {
+  if (webrtcManager) {
+    webrtcManager.endCall();
   }
   
-  const incomingCallDialog = document.getElementById('incomingCallDialog');
-  if (incomingCallDialog) {
-    incomingCallDialog.remove();
+  // Останавливаем перевод речи
+  stopTranslation();
+  
+  // Останавливаем все треки локального потока
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
   }
   
+  // Возвращаем интерфейс в исходное состояние
+  resetCallUI();
   callInProgress = false;
-  callType = null;
-} 
+}

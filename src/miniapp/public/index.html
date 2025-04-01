@@ -33,6 +33,7 @@
             <div class="contacts-tabs">
               <button class="tab-btn active" data-tab="friends">Друзья</button>
               <button class="tab-btn" data-tab="search">Поиск</button>
+              <button class="tab-btn" data-tab="settings">Настройки</button>
             </div>
           </div>
           
@@ -53,6 +54,54 @@
             <div id="searchResults" class="search-results">
               <!-- Результаты поиска будут добавлены через JavaScript -->
               <div class="no-results">Начните поиск, чтобы найти пользователей</div>
+            </div>
+          </div>
+          
+          <!-- Вкладка настроек -->
+          <div id="settingsTab" class="tab-content">
+            <div class="settings-container">
+              <h3>Настройки перевода</h3>
+              
+              <div class="settings-group">
+                <h4>Мой язык</h4>
+                <div class="radio-group">
+                  <label>
+                    <input type="radio" name="sourceLanguage" value="ru" checked>
+                    Русский
+                  </label>
+                  <label>
+                    <input type="radio" name="sourceLanguage" value="en">
+                    Английский
+                  </label>
+                </div>
+                <p class="settings-note">Выберите язык, на котором вы говорите. Ваша речь будет автоматически переведена для собеседника.</p>
+              </div>
+              
+              <div class="settings-group">
+                <h4>Голос синтеза</h4>
+                <select id="translationVoice">
+                  <option value="alloy">Alloy</option>
+                  <option value="echo">Echo</option>
+                  <option value="fable">Fable</option>
+                  <option value="onyx">Onyx</option>
+                  <option value="nova">Nova</option>
+                  <option value="shimmer">Shimmer</option>
+                </select>
+              </div>
+              
+              <div class="settings-group">
+                <h4>Дополнительно</h4>
+                <label>
+                  <input type="checkbox" id="muteOriginalCheckbox" checked>
+                  Заглушить оригинальный голос собеседника
+                </label>
+                <label>
+                  <input type="checkbox" id="useVADCheckbox" checked>
+                  Использовать VAD (определение активности голоса)
+                </label>
+              </div>
+              
+              <button id="saveSettingsBtn" class="primary-btn">Сохранить настройки</button>
             </div>
           </div>
         </div>
@@ -164,4 +213,4 @@
   <!-- Основной скрипт приложения -->
   <script src="app.js"></script>
 </body>
-</html> 
+</html>
