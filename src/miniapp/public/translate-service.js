@@ -635,24 +635,53 @@ class TranslateService {
    */
   setupAudioMixing() {
     try {
+      this.log('Применение настройки заглушения оригинального голоса:', this.settings.muteOriginal);
+      
       // Создаем аудио контекст если не существует
       if (!this.audioContext) {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
       
-      // Подключаем только удаленный аудио поток
-      if (this.remoteStream) {
-        this.remoteAudioNode = this.audioContext.createMediaStreamSource(this.remoteStream);
-        this.audioDestination = this.audioContext.createMediaStreamDestination();
-        this.remoteAudioNode.connect(this.audioDestination);
+      // Получаем все аудио элементы на странице
+      const allAudioElements = document.querySelectorAll('audio');
+      this.log(`Найдено ${allAudioElements.length} аудио элементов`);
+      
+      // Находим элемент для воспроизведения ремоут-стрима
+      let remoteAudioElement = document.getElementById('remoteVideo') || document.getElementById('remoteAudio');
+      
+      if (remoteAudioElement) {
+        this.log(`Найден ремоут аудио элемент: ${remoteAudioElement.id}`);
         
-        // Создаем элемент аудио для воспроизведения только переведенного звука
-        const audioElement = new Audio();
-        audioElement.srcObject = this.audioDestination.stream;
-        audioElement.play().catch(error => {
-          this.logError('Ошибка при воспроизведении аудио:', error);
+        // Устанавливаем громкость в зависимости от настройки muteOriginal
+        remoteAudioElement.volume = this.settings.muteOriginal ? 0 : 1;
+        this.log(`Громкость оригинального голоса установлена на: ${remoteAudioElement.volume}`);
+      } else {
+        this.log('Не найден аудио элемент для ремоут-стрима. Проверяем все аудио элементы');
+        
+        // Если не нашли по ID, пробуем установить громкость всем аудио элементам
+        allAudioElements.forEach((audioEl, index) => {
+          if (audioEl.srcObject && audioEl.srcObject.getAudioTracks().length > 0) {
+            audioEl.volume = this.settings.muteOriginal ? 0 : 1;
+            this.log(`Установлена громкость ${audioEl.volume} для аудио элемента #${index}`);
+          }
         });
       }
+      
+      // Дополнительно пробуем отключить воспроизведение звука на уровне WebRTC
+      if (this.remoteStream && this.settings.muteOriginal) {
+        // Отключаем воспроизведение звука на уровне аудио контекста
+        this.remoteAudioNode = this.audioContext.createMediaStreamSource(this.remoteStream);
+        this.remoteGainNode = this.audioContext.createGain();
+        this.remoteGainNode.gain.value = 0; // Полное заглушение
+        
+        // Подключаем узлы для обработки звука
+        this.remoteAudioNode.connect(this.remoteGainNode);
+        this.remoteGainNode.connect(this.audioContext.destination);
+        
+        this.log('Аудиопоток полностью заглушен через AudioContext');
+      }
+
+      this.log('Настройка заглушения звука завершена');
     } catch (error) {
       this.logError('Ошибка при настройке микширования аудио:', error);
     }

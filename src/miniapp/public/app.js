@@ -1563,6 +1563,7 @@ function saveTranslationSettings() {
     settings.setModel(translationModelSelect.value);
     settings.setVoice(translationVoiceSelect.value);
     settings.setUseVAD(useVADCheckbox.checked);
+    settings.setMuteOriginal(muteOriginalCheckbox.checked);
     settings.saveSettings();
     
     // Сохраняем API ключ в локальном хранилище

@@ -82,6 +82,58 @@ class TranslationManager {
   }
   
   /**
+   * Настраивает обработчики событий изменения настроек
+   * @private
+   */
+  _setupSettingsListeners() {
+    // Обработчик изменения целевого языка
+    translationSettings.addEventListener('language-change', (data) => {
+      console.log(`[ТranslationManager] Изменен целевой язык: ${data.newLanguage}`);
+      
+      // Если включен режим перевода, обновляем настройки и переподключаемся
+      if (this.isTranslating && openAIWebRTC.connectionState === 'connected') {
+        openAIWebRTC.setTargetLanguage(data.newLanguage, data.instructions);
+      }
+    });
+    
+    // Обработчик изменения модели
+    translationSettings.addEventListener('model-change', (data) => {
+      console.log(`[TranslationManager] Изменена модель: ${data.newModel}`);
+      
+      // Если включен режим перевода, обновляем настройки и переподключаемся
+      if (this.isTranslating && openAIWebRTC.connectionState === 'connected') {
+        openAIWebRTC.setModel(data.newModel);
+      }
+    });
+    
+    // Обработчик изменения голоса
+    translationSettings.addEventListener('voice-change', (data) => {
+      console.log(`[TranslationManager] Изменен голос: ${data.newVoice}`);
+      
+      // Если включен режим перевода, обновляем настройки
+      if (this.isTranslating && openAIWebRTC.connectionState === 'connected') {
+        openAIWebRTC.setVoice(data.newVoice);
+      }
+    });
+    
+    // Обработчик изменения настройки заглушения оригинального звука
+    translationSettings.addEventListener('mute-original-change', (data) => {
+      console.log(`[TranslationManager] Изменено заглушение оригинального звука: ${data.muteOriginal ? 'включено' : 'выключено'}`);
+      
+      // Применяем настройку к WebRTC модулю
+      openAIWebRTC.setMuteOriginal(data.muteOriginal);
+    });
+    
+    // Обработчик общего обновления настроек
+    translationSettings.addEventListener('settings-updated', (settings) => {
+      console.log('[TranslationManager] Обновлены настройки');
+      
+      // Передаем все настройки в WebRTC модуль
+      openAIWebRTC.loadSettings(settings);
+    });
+  }
+
+  /**
    * Настраивает обработчики событий от модуля WebRTC
    * @private
    */
@@ -158,6 +210,11 @@ class TranslationManager {
       openAIWebRTC.setVoice(voice);
       openAIWebRTC.setUseVAD(useVAD);
       
+      // Устанавливаем режим заглушения оригинального звука
+      const muteOriginal = translationSettings.muteOriginal;
+      openAIWebRTC.setMuteOriginal(muteOriginal);
+      console.log(`[TranslationManager] Режим заглушения оригинального звука: ${muteOriginal ? 'включен' : 'выключен'}`);
+      
       console.log(`[TranslationManager] Начинаем перевод. Язык: ${language}, Модель: ${model}`);
       
       // Если есть аудио элементы, настраиваем их
@@ -199,9 +256,17 @@ class TranslationManager {
       // Сохраняем ID звонка
       this.currentCallId = callId;
       
-      // Получаем текущий целевой язык из настроек
-      const targetLanguage = translationSettings.getTargetLanguage();
-      openAIWebRTC.setTargetLanguage(targetLanguage);
+      // Загружаем все настройки из модуля настроек
+      const settings = {
+        targetLanguage: translationSettings.targetLanguage,
+        model: translationSettings.model,
+        voice: translationSettings.voice,
+        useVAD: translationSettings.useVAD,
+        muteOriginal: translationSettings.muteOriginal
+      };
+      
+      // Передаем все настройки в WebRTC модуль
+      openAIWebRTC.loadSettings(settings);
       
       // Запускаем соединение WebRTC с OpenAI
       await openAIWebRTC.connect();

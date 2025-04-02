@@ -79,6 +79,9 @@ class TranslationSettings {
       
       localStorage.setItem('translation_settings', JSON.stringify(settings));
       console.log('[TranslationSettings] Настройки сохранены');
+      
+      // Сигнал внешним модулям о том, что настройки были обновлены
+      this.triggerEvent('settings-updated', settings);
     } catch (error) {
       console.error('[TranslationSettings] Ошибка при сохранении настроек:', error);
     }
@@ -179,9 +182,18 @@ class TranslationSettings {
    * @param {boolean} muteOriginal - Заглушать оригинальный звук
    */
   setMuteOriginal(muteOriginal) {
+    // Если значение уже установлено, не делаем ничего
+    if (this.muteOriginal === muteOriginal) {
+      return true;
+    }
+    
     this.muteOriginal = muteOriginal;
     this.saveSettings();
     console.log(`[TranslationSettings] Оригинальный звук ${muteOriginal ? 'заглушен' : 'воспроизводится'}`);
+    
+    // Запускаем событие изменения настройки заглушения
+    this.triggerEvent('mute-original-change', { muteOriginal });
+    
     return true;
   }
   

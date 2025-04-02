@@ -37,6 +37,7 @@ class OpenAIWebRTC {
     this.model = 'gpt-4o-mini-realtime-preview';
     this.voice = 'alloy';
     this.useVAD = true; // Voice Activity Detection
+    this.muteOriginal = false; // Заглушать ли оригинальный звук
     
     // Буфер для удаления собственного голоса
     this.audioContext = null;
@@ -184,6 +185,63 @@ class OpenAIWebRTC {
     this.log(`Режим VAD: ${useVAD ? 'включен' : 'выключен'}`);
   }
   
+  /**
+   * Устанавливает режим заглушения оригинального голоса
+   * @param {boolean} muteOriginal - Заглушать ли оригинальный звук
+   */
+  setMuteOriginal(muteOriginal) {
+    this.muteOriginal = muteOriginal;
+    this.log(`Режим заглушения оригинального звука: ${muteOriginal ? 'включен' : 'выключен'}`);
+    
+    // Если аудио контекст уже существует, применяем настройку сразу
+    if (this.originalVolumeNode) {
+      // 0.0 для заглушения, 1.0 для воспроизведения
+      this.originalVolumeNode.gain.value = muteOriginal ? 0.0 : 1.0;
+      this.log(`Громкость оригинального голоса установлена на: ${muteOriginal ? 0.0 : 1.0}`);
+    }
+  }
+  
+  /**
+   * Загрузка настроек из модуля настроек
+   * @param {Object} settings - Объект с настройками
+   */
+  loadSettings(settings) {
+    if (!settings) return;
+    
+    this.log('Загрузка настроек...');
+    
+    if (settings.targetLanguage) {
+      this.targetLanguage = settings.targetLanguage;
+      this.log(`Загружен целевой язык: ${this.targetLanguage}`);
+    }
+    
+    if (settings.model) {
+      this.model = settings.model;
+      this.log(`Загружена модель: ${this.model}`);
+    }
+    
+    if (settings.voice) {
+      this.voice = settings.voice;
+      this.log(`Загружен голос: ${this.voice}`);
+    }
+    
+    if (settings.useVAD !== undefined) {
+      this.useVAD = settings.useVAD;
+      this.log(`Загружен режим VAD: ${this.useVAD ? 'включен' : 'выключен'}`);
+    }
+    
+    if (settings.muteOriginal !== undefined) {
+      this.muteOriginal = settings.muteOriginal;
+      this.log(`Загружен режим заглушения: ${this.muteOriginal ? 'включен' : 'выключен'}`);
+      
+      // Если аудио контекст уже существует, применяем настройку сразу
+      if (this.originalVolumeNode) {
+        this.originalVolumeNode.gain.value = this.muteOriginal ? 0.0 : 1.0;
+        this.log(`Громкость оригинального голоса обновлена: ${this.muteOriginal ? 0.0 : 1.0}`);
+      }
+    }
+  }
+
   /**
    * Установка соединения с OpenAI WebRTC
    * @returns {Promise} Промис, разрешающийся при успешном подключении
@@ -573,8 +631,10 @@ class OpenAIWebRTC {
       
       // Создаем гейн ноду для контроля громкости оригинального голоса
       this.originalVolumeNode = this.audioContext.createGain();
-      // Заглушаем оригинальный голос (0 означает полное заглушение)
-      this.originalVolumeNode.gain.value = 0.0;
+      // Устанавливаем громкость в зависимости от настройки muteOriginal
+      // 0.0 для заглушения, 1.0 для воспроизведения
+      this.originalVolumeNode.gain.value = this.muteOriginal ? 0.0 : 1.0;
+      this.log(`Громкость оригинального голоса установлена на: ${this.muteOriginal ? 0.0 : 1.0}`);
       
       // Подключаем удаленный поток к гейн ноде для заглушения
       this.remoteAudioNode.connect(this.originalVolumeNode);
