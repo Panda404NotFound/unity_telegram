@@ -51,14 +51,16 @@ class TranslationSettings {
       this.model = settings?.model || 'gpt-4o-mini-realtime-preview'; // Модель по умолчанию
       this.voice = settings?.voice || 'alloy'; // Голос по умолчанию
       this.useVAD = settings?.useVAD !== undefined ? settings.useVAD : true; // Использовать VAD (Voice Activity Detection)
+      this.muteOriginal = settings?.muteOriginal !== undefined ? settings.muteOriginal : false; // По умолчанию не заглушаем оригинальный звук
       
-      console.log(`[TranslationSettings] Настройки загружены: целевой язык = ${this.targetLanguage}, модель = ${this.model}, голос = ${this.voice}`);
+      console.log(`[TranslationSettings] Настройки загружены: целевой язык = ${this.targetLanguage}, модель = ${this.model}, голос = ${this.voice}, звук оригинала ${this.muteOriginal ? 'заглушен' : 'воспроизводится'}`);
     } catch (error) {
       console.error('[TranslationSettings] Ошибка при загрузке настроек:', error);
       this.targetLanguage = 'ru'; // Значение по умолчанию при ошибке
       this.model = 'gpt-4o-mini-realtime-preview';
       this.voice = 'alloy';
       this.useVAD = true;
+      this.muteOriginal = false; // По умолчанию не заглушаем оригинальный звук
     }
   }
   
@@ -71,7 +73,8 @@ class TranslationSettings {
         targetLanguage: this.targetLanguage,
         model: this.model,
         voice: this.voice,
-        useVAD: this.useVAD
+        useVAD: this.useVAD,
+        muteOriginal: this.muteOriginal
       };
       
       localStorage.setItem('translation_settings', JSON.stringify(settings));
@@ -172,6 +175,17 @@ class TranslationSettings {
   }
   
   /**
+   * Устанавливает режим заглушения оригинального звука
+   * @param {boolean} muteOriginal - Заглушать оригинальный звук
+   */
+  setMuteOriginal(muteOriginal) {
+    this.muteOriginal = muteOriginal;
+    this.saveSettings();
+    console.log(`[TranslationSettings] Оригинальный звук ${muteOriginal ? 'заглушен' : 'воспроизводится'}`);
+    return true;
+  }
+  
+  /**
    * Получает текущий целевой язык перевода
    * @returns {string} Код языка
    */
@@ -210,6 +224,14 @@ class TranslationSettings {
    */
   getUseVAD() {
     return this.useVAD;
+  }
+  
+  /**
+   * Получает статус заглушения оригинального звука
+   * @returns {boolean} Заглушать ли оригинальный звук
+   */
+  getMuteOriginal() {
+    return this.muteOriginal;
   }
   
   /**
@@ -432,6 +454,28 @@ class TranslationSettings {
     vadGroup.appendChild(vadCheck);
     vadGroup.appendChild(vadLabel);
     settingsContainer.appendChild(vadGroup);
+    
+    // 5. Переключатель заглушения оригинального звука
+    const muteOriginalGroup = document.createElement('div');
+    muteOriginalGroup.className = 'settings-group';
+    
+    const muteOriginalCheck = document.createElement('input');
+    muteOriginalCheck.type = 'checkbox';
+    muteOriginalCheck.id = 'mute-original-checkbox';
+    muteOriginalCheck.checked = this.muteOriginal;
+    
+    const muteOriginalLabel = document.createElement('label');
+    muteOriginalLabel.textContent = 'Заглушать оригинальный звук';
+    muteOriginalLabel.setAttribute('for', 'mute-original-checkbox');
+    
+    // Обработчик изменения заглушения оригинального звука
+    muteOriginalCheck.addEventListener('change', (e) => {
+      this.setMuteOriginal(e.target.checked);
+    });
+    
+    muteOriginalGroup.appendChild(muteOriginalCheck);
+    muteOriginalGroup.appendChild(muteOriginalLabel);
+    settingsContainer.appendChild(muteOriginalGroup);
     
     // Добавляем контейнер настроек в указанный контейнер
     container.appendChild(settingsContainer);

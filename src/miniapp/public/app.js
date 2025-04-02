@@ -1708,7 +1708,7 @@ async function startAudioCall(contactId) {
 }
 
 // Показать интерфейс звонка
-function showCallInterface() {
+function showCallInterface(customContact = null) {
   // Создаем модальное окно для звонка
   const callModal = document.createElement('div');
   callModal.className = 'call-modal';
@@ -1717,12 +1717,19 @@ function showCallInterface() {
   const callContent = document.createElement('div');
   callContent.className = 'call-content';
   
+  // Используем либо customContact (для входящих звонков), 
+  // либо selectedContact (для исходящих), либо дефолтные значения
+  const contactToShow = customContact || selectedContact || {
+    name: 'Собеседник',
+    avatar: null
+  };
+  
   // Информация о контакте
   const callContactInfo = document.createElement('div');
   callContactInfo.className = 'call-contact-info';
   callContactInfo.innerHTML = `
-    <div class="call-avatar">${selectedContact.avatar || selectedContact.name.charAt(0)}</div>
-    <div class="call-name">${selectedContact.name}</div>
+    <div class="call-avatar">${contactToShow.avatar || contactToShow.name.charAt(0)}</div>
+    <div class="call-name">${contactToShow.name}</div>
     <div class="call-status" id="callStatus">Соединение...</div>
   `;
   
@@ -1890,7 +1897,7 @@ function initTranslationInCall(stream, isOutgoingCall) {
   // Обновляем настройки в сервисе перевода
   window.translateService.updateSettings(translationConfig);
   
-  // Подключаем аудио поток к сервисе перевода
+  // Подключаем аудио поток к сервису перевода
   window.translateService.connect(stream);
   
   // Включаем перевод
@@ -2156,56 +2163,59 @@ function showIncomingCallDialog(callerName, callerId, callType) {
 }
 
 // Принять входящий звонок
-async function acceptIncomingCall(incomingCallType) {
-  console.log(`Принятие входящего ${incomingCallType} звонка...`);
-  
-  if (!webrtcManager) {
-    console.error("WebRTC менеджер не инициализирован");
-    return;
+async function acceptIncomingCall(callType) {
+  try {
+    if (callInProgress) {
+      showError('У вас уже идет звонок. Невозможно принять входящий звонок.');
+      return;
+    }
+    
+    callInProgress = true;
+    console.log(`Принятие ${callType} звонка...`);
+    
+    // Проверяем, инициализирован ли WebRTC
+    if (!webrtcManager) {
+      console.log('WebRTC менеджер не инициализирован, создаем новый');
+      initWebRTC();
+    }
+    
+    // Проверяем, действительно ли WebRTC менеджер инициализирован
+    if (!webrtcManager) {
+      throw new Error('Не удалось инициализировать WebRTC менеджер');
+    }
+    
+    // Проверяем, существует ли roomId
+    if (!webrtcManager.roomId) {
+      throw new Error('Отсутствует ID комнаты для звонка');
+    }
+    
+    // Получаем информацию о звонящем
+    const callerId = webrtcManager.targetUserId;
+    
+    // Создаем временный контакт для отображения в интерфейсе звонка
+    const tempContact = {
+      name: 'Собеседник',
+      avatar: null
+    };
+    
+    // Если звонящий - это один из наших контактов, используем его данные
+    const caller = contacts.find(c => c.id === callerId);
+    if (caller) {
+      tempContact.name = caller.name;
+      tempContact.avatar = caller.avatar;
+    }
+    
+    // Создаем интерфейс звонка
+    showCallInterface(tempContact);
+    
+    // Отвечаем на звонок
+    await webrtcManager.answerCall(true);
+  } catch (error) {
+    console.error('Ошибка при принятии входящего звонка:', error);
+    showError(`Не удалось ответить на звонок: ${error.message}`);
+    resetCallUI();
+    callInProgress = false;
   }
-  
-  callType = incomingCallType;
-  
-  // Запрашиваем доступ к устройствам в зависимости от типа звонка
-  let mediaConstraints = {
-    audio: true,
-    video: incomingCallType === 'video'
-  };
-  
-  navigator.mediaDevices.getUserMedia(mediaConstraints)
-    .then(stream => {
-      localStream = stream;
-      
-      // Скрываем диалог входящего звонка
-      const incomingCallDialog = document.getElementById('incomingCallDialog');
-      if (incomingCallDialog) {
-        incomingCallDialog.remove();
-      }
-      
-      // Показываем интерфейс звонка
-      showCallInterface();
-      
-      // Принимаем звонок с помощью WebRTC менеджера
-      webrtcManager.acceptCall(stream);
-      
-      // Обновляем статус звонка
-      callInProgress = true;
-      
-      // Инициализируем перевод речи
-      // При входящем звонке нам нужно дождаться установки соединения
-      // и получения удаленного потока для перевода
-      // Это происходит в обработчике onRemoteStreamAvailable
-      webrtcManager.onRemoteStreamAvailable = (remoteStream) => {
-        console.log('Удаленный поток доступен, инициализация перевода');
-        // Инициализируем перевод речи для входящего звонка
-        initTranslationInCall(remoteStream, false);
-      };
-    })
-    .catch(error => {
-      console.error("Ошибка доступа к медиа устройствам:", error);
-      showError("Не удалось получить доступ к камере или микрофону");
-      webrtcManager.rejectCall();
-    });
 }
 
 // Отклонить входящий звонок
