@@ -1,7 +1,9 @@
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const aiTranslationService = require('./ai-translation-service');
+const audioProcessor = require('./audio-processor');
 
-// Класс для управления сервером сигнализации WebRTC
+// Класс для управления сервером сигнализации WebRTC с поддержкой перевода речи через OpenAI
 class SignalingServer {
   constructor() {
     this.wss = null; // WebSocket сервер
@@ -9,22 +11,51 @@ class SignalingServer {
     this.userIds = new Map(); // WebSocket -> id пользователя
     this.rooms = new Map(); // Комнаты для звонков: roomId -> набор id пользователей
     this.userRooms = new Map(); // Пользователь в комнате: userId -> roomId
+    
+    // Новые свойства для работы с переводом речи
+    this.translationEnabled = false; // Глобальный флаг включения перевода
+    this.userTranslationSettings = new Map(); // Настройки перевода: userId -> { enabled, sourceLanguage, targetLanguage, voice }
+    this.roomTranslationState = new Map(); // Состояние перевода в комнате: roomId -> { enabled, participants: Map(userId -> isTranslating) }
   }
 
-  // Инициализация WebSocket сервера
+  // Инициализация WebSocket сервера и сервиса AI-Translation
   init(server) {
     // Создаем WebSocket сервер на базе существующего HTTP сервера
     this.wss = new WebSocket.Server({ server });
+    
+    // Инициализируем сервис AI-Translation если есть API ключ OpenAI
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (openaiApiKey) {
+      const success = aiTranslationService.init(openaiApiKey);
+      if (success) {
+        this.translationEnabled = true;
+        console.log('✅ Сервис AI-Translation успешно инициализирован');
+      } else {
+        console.error('❌ Не удалось инициализировать сервис AI-Translation');
+      }
+    } else {
+      console.warn('⚠️ API ключ OpenAI не найден в переменных окружения. Перевод речи будет недоступен.');
+    }
 
     // Обработка подключения нового клиента
     this.wss.on('connection', (ws) => {
       console.log('Новое WebSocket подключение');
 
+      // Добавляем поддержку бинарных данных для аудио
+      ws.binaryType = 'arraybuffer';
+
       // Обработка сообщений от клиента
       ws.on('message', (message) => {
         try {
-          const data = JSON.parse(message);
-          this.handleMessage(ws, data);
+          // Проверяем, это текстовое сообщение или бинарные данные
+          if (typeof message === 'string' || message instanceof Buffer) {
+            // Текстовое сообщение - JSON
+            const data = JSON.parse(message.toString());
+            this.handleMessage(ws, data);
+          } else if (message instanceof ArrayBuffer || ArrayBuffer.isView(message)) {
+            // Бинарные данные - аудио
+            this.handleAudioData(ws, message);
+          }
         } catch (error) {
           console.error('Ошибка при обработке сообщения от клиента:', error);
           this.sendError(ws, 'Некорректный формат сообщения');
@@ -64,6 +95,12 @@ class SignalingServer {
         break;
       case 'hangup':
         this.handleHangup(ws, payload);
+        break;
+      case 'translation-settings':
+        this.handleTranslationSettings(ws, payload);
+        break;
+      case 'toggle-translation':
+        this.handleToggleTranslation(ws, payload);
         break;
       default:
         console.warn('Неизвестный тип сообщения:', type);
@@ -142,6 +179,46 @@ class SignalingServer {
     this.userRooms.set(callerIdStr, roomId);
     this.userRooms.set(targetUserIdStr, roomId);
 
+    // Инициализируем настройки перевода для комнаты
+    if (this.translationEnabled) {
+      this.roomTranslationState.set(roomId, {
+        enabled: true,
+        participants: new Map([
+          [callerIdStr, false], // По умолчанию перевод выключен
+          [targetUserIdStr, false]
+        ])
+      });
+      
+      // Создаем ассистентов для обоих пользователей, если еще не созданы
+      // Используем заготовленные настройки или настройки по умолчанию
+      const callerSettings = this.userTranslationSettings.get(callerIdStr) || {
+        sourceLanguage: 'ru',
+        targetLanguage: 'en',
+        voice: 'alloy'
+      };
+      
+      const targetSettings = this.userTranslationSettings.get(targetUserIdStr) || {
+        sourceLanguage: 'en',
+        targetLanguage: 'ru',
+        voice: 'alloy'
+      };
+      
+      // Создаем ассистентов асинхронно
+      aiTranslationService.createAssistant(callerIdStr, callerSettings)
+        .then(success => {
+          if (success) {
+            this.log(`Создан ассистент перевода для инициатора звонка ${callerIdStr}`, 'info');
+          }
+        });
+      
+      aiTranslationService.createAssistant(targetUserIdStr, targetSettings)
+        .then(success => {
+          if (success) {
+            this.log(`Создан ассистент перевода для получателя звонка ${targetUserIdStr}`, 'info');
+          }
+        });
+    }
+    
     console.log(`Создана комната ${roomId} для звонка между ${callerIdStr} и ${targetUserIdStr}`);
 
     // Отправляем сообщение о входящем звонке целевому пользователю
@@ -385,7 +462,275 @@ class SignalingServer {
     // Удаляем саму комнату
     this.rooms.delete(roomId);
     
+    // Удаляем настройки перевода для комнаты
+    this.roomTranslationState.delete(roomId);
+    
     console.log(`Комната ${roomId} удалена`);
+  }
+  
+  /**
+   * Обрабатывает бинарные аудио данные от клиента
+   * @param {WebSocket} ws - WebSocket соединение клиента
+   * @param {ArrayBuffer} audioData - Аудио данные для обработки
+   */
+  async handleAudioData(ws, audioData) {
+    try {
+      // Получаем ID пользователя по WebSocket соединению
+      const userId = this.userIds.get(ws);
+      
+      if (!userId) {
+        this.log('Получены аудио данные от незарегистрированного клиента', 'warn');
+        return;
+      }
+      
+      // Проверяем, находится ли пользователь в комнате
+      const roomId = this.userRooms.get(userId);
+      if (!roomId) {
+        this.log(`Пользователь ${userId} не находится в комнате`, 'warn');
+        return;
+      }
+      
+      // Проверяем, включен ли перевод для этой комнаты
+      const roomTranslation = this.roomTranslationState.get(roomId);
+      const translationEnabled = roomTranslation && roomTranslation.enabled;
+      
+      // Если перевод отключен, просто игнорируем аудио данные
+      if (!translationEnabled) {
+        return;
+      }
+      
+      // Получаем других участников комнаты
+      const room = this.rooms.get(roomId);
+      if (!room) {
+        this.log(`Комната ${roomId} не найдена`, 'warn');
+        return;
+      }
+      
+      // Получаем список получателей (все кроме отправителя)
+      const recipients = Array.from(room).filter(id => id !== userId);
+      
+      // Проверяем, включен ли перевод для этого пользователя
+      const isTranslatingUser = roomTranslation && 
+                                roomTranslation.participants && 
+                                roomTranslation.participants.get(userId);
+      
+      if (!isTranslatingUser) {
+        return;
+      }
+      
+      // Обрабатываем аудио через аудио-процессор
+      await audioProcessor.processAudio(userId, roomId, audioData, recipients, true);
+      
+    } catch (error) {
+      this.log(`Ошибка при обработке аудио данных: ${error.message}`, 'error');
+    }
+  }
+  
+  /**
+   * Обрабатывает настройки перевода от клиента
+   * @param {WebSocket} ws - WebSocket соединение клиента
+   * @param {Object} payload - Данные настроек перевода
+   */
+  handleTranslationSettings(ws, payload) {
+    try {
+      const userId = this.userIds.get(ws);
+      
+      if (!userId) {
+        this.sendError(ws, 'Вы не зарегистрированы');
+        return;
+      }
+      
+      const { sourceLanguage, targetLanguage, voice } = payload;
+      
+      // Сохраняем настройки перевода
+      this.userTranslationSettings.set(userId, {
+        enabled: true,
+        sourceLanguage: sourceLanguage || 'ru',
+        targetLanguage: targetLanguage || 'en',
+        voice: voice || 'alloy'
+      });
+      
+      // Создаем или обновляем ассистента для пользователя
+      if (this.translationEnabled) {
+        aiTranslationService.createAssistant(userId, {
+          sourceLanguage: sourceLanguage || 'ru',
+          targetLanguage: targetLanguage || 'en',
+          voice: voice || 'alloy'
+        }).then(success => {
+          if (success) {
+            ws.send(JSON.stringify({
+              type: 'translation-settings-updated',
+              payload: {
+                success: true,
+                settings: this.userTranslationSettings.get(userId)
+              }
+            }));
+            this.log(`Настройки перевода обновлены для пользователя ${userId}`, 'info');
+          } else {
+            this.sendError(ws, 'Не удалось создать ассистента для перевода');
+          }
+        });
+      } else {
+        this.sendError(ws, 'Перевод отключен на сервере. Проверьте настройки API ключа.');
+      }
+      
+    } catch (error) {
+      this.log(`Ошибка при обновлении настроек перевода: ${error.message}`, 'error');
+      this.sendError(ws, 'Ошибка при обновлении настроек перевода');
+    }
+  }
+  
+  /**
+   * Обрабатывает включение/выключение перевода в звонке
+   * @param {WebSocket} ws - WebSocket соединение клиента
+   * @param {Object} payload - Данные о включении/выключении перевода
+   */
+  handleToggleTranslation(ws, payload) {
+    try {
+      const userId = this.userIds.get(ws);
+      
+      if (!userId) {
+        this.sendError(ws, 'Вы не зарегистрированы');
+        return;
+      }
+      
+      // Проверяем, находится ли пользователь в комнате
+      const roomId = this.userRooms.get(userId);
+      if (!roomId) {
+        this.sendError(ws, 'Вы не находитесь в звонке');
+        return;
+      }
+      
+      const { enabled } = payload;
+      
+      // Проверяем, существуют ли настройки перевода для комнаты
+      if (!this.roomTranslationState.has(roomId)) {
+        this.roomTranslationState.set(roomId, {
+          enabled: true,
+          participants: new Map()
+        });
+      }
+      
+      const roomTranslation = this.roomTranslationState.get(roomId);
+      
+      // Если нет карты участников, создаем её
+      if (!roomTranslation.participants) {
+        roomTranslation.participants = new Map();
+      }
+      
+      // Обновляем состояние перевода для пользователя
+      roomTranslation.participants.set(userId, enabled !== false);
+      
+      // Если перевод включен, активируем ассистента
+      if (enabled !== false && this.translationEnabled) {
+        aiTranslationService.activateAssistant(userId, roomId).then(success => {
+          if (success) {
+            ws.send(JSON.stringify({
+              type: 'translation-toggled',
+              payload: {
+                success: true,
+                enabled: true,
+                roomId
+              }
+            }));
+            
+            // Уведомляем других участников о включении перевода
+            this.notifyRoomParticipants(roomId, userId, {
+              type: 'translation-state-changed',
+              payload: {
+                userId,
+                translating: true,
+                roomId
+              }
+            });
+            
+            this.log(`Перевод включен для пользователя ${userId} в комнате ${roomId}`, 'info');
+          } else {
+            this.sendError(ws, 'Не удалось активировать ассистента перевода');
+            roomTranslation.participants.set(userId, false);
+          }
+        });
+      } else {
+        // Если перевод выключен, деактивируем ассистента
+        if (this.translationEnabled) {
+          aiTranslationService.deactivateAssistant(userId).then(() => {
+            ws.send(JSON.stringify({
+              type: 'translation-toggled',
+              payload: {
+                success: true,
+                enabled: false,
+                roomId
+              }
+            }));
+            
+            // Уведомляем других участников о выключении перевода
+            this.notifyRoomParticipants(roomId, userId, {
+              type: 'translation-state-changed',
+              payload: {
+                userId,
+                translating: false,
+                roomId
+              }
+            });
+            
+            this.log(`Перевод выключен для пользователя ${userId} в комнате ${roomId}`, 'info');
+          });
+        } else {
+          this.sendError(ws, 'Перевод отключен на сервере');
+        }
+      }
+      
+    } catch (error) {
+      this.log(`Ошибка при включении/выключении перевода: ${error.message}`, 'error');
+      this.sendError(ws, 'Ошибка при включении/выключении перевода');
+    }
+  }
+  
+  /**
+   * Отправляет уведомление всем участникам комнаты, кроме указанного пользователя
+   * @param {string} roomId - ID комнаты звонка
+   * @param {string} exceptUserId - ID пользователя, которому не нужно отправлять уведомление
+   * @param {Object} message - Сообщение для отправки
+   */
+  notifyRoomParticipants(roomId, exceptUserId, message) {
+    if (!this.rooms.has(roomId)) return;
+    
+    const room = this.rooms.get(roomId);
+    
+    for (const userId of room) {
+      if (userId !== exceptUserId && this.clients.has(userId)) {
+        const ws = this.clients.get(userId);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(message));
+        }
+      }
+    }
+  }
+  
+  /**
+   * Функция логирования с уровнями важности
+   * @param {string} message - Сообщение для логирования
+   * @param {string} level - Уровень важности (debug, info, warn, error)
+   */
+  log(message, level = 'info') {
+    const timestamp = new Date().toISOString();
+    
+    switch (level.toLowerCase()) {
+      case 'debug':
+        console.debug(`[${timestamp}] [SignalingServer] 🔍 DEBUG: ${message}`);
+        break;
+      case 'info':
+        console.info(`[${timestamp}] [SignalingServer] ℹ️ INFO: ${message}`);
+        break;
+      case 'warn':
+        console.warn(`[${timestamp}] [SignalingServer] ⚠️ WARN: ${message}`);
+        break;
+      case 'error':
+        console.error(`[${timestamp}] [SignalingServer] ❌ ERROR: ${message}`);
+        break;
+      default:
+        console.log(`[${timestamp}] [SignalingServer] ${message}`);
+    }
   }
 }
 

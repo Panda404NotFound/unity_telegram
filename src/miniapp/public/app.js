@@ -1863,11 +1863,11 @@ function resetCallUI() {
 
 // Функция для инициализации перевода речи в WebRTC звонке
 function initTranslationInCall(stream, isOutgoingCall) {
-  console.log('Инициализация перевода речи в звонке...');
+  console.log('Инициализация AI перевода речи в звонке...');
   
-  // Проверяем инициализацию сервиса перевода
-  if (!window.translateService || !window.translateService.initialized) {
-    console.error('Сервис перевода не инициализирован');
+  // Проверяем инициализацию клиента AI-перевода
+  if (!window.aiTranslationClient || !window.aiTranslationClient.ready) {
+    console.error('AI клиент перевода не инициализирован');
     return;
   }
   
@@ -1880,30 +1880,52 @@ function initTranslationInCall(stream, isOutgoingCall) {
                          (translationSettings.sourceLanguage === 'ru' ? 'en' : 'ru') : 
                          translationSettings.sourceLanguage;
   
-  console.log(`Настройка перевода для ${isOutgoingCall ? 'исходящего' : 'входящего'} звонка`);
+  console.log(`Настройка AI перевода для ${isOutgoingCall ? 'исходящего' : 'входящего'} звонка`);
   console.log(`Язык источника: ${sourceLanguage}, Язык перевода: ${targetLanguage}`);
   
-  // Конфигурация для перевода
-  const translationConfig = {
+  // Получаем ID собеседника и комнаты из WebRTC менеджера
+  const peerId = webrtcManager.targetUserId;
+  const roomId = webrtcManager.roomId;
+  
+  // Обновляем настройки в клиенте AI-перевода
+  window.aiTranslationClient.updateSettings({
     sourceLanguage: sourceLanguage,
     targetLanguage: targetLanguage,
-    model: 'gpt-4o-mini-realtime-preview', // Используем фиксированную модель
     voice: translationSettings.voice,
     muteOriginal: translationSettings.muteOriginal,
-    useVAD: translationSettings.useVAD
-  };
+    autoStart: true
+  });
   
-  console.log('Конфигурация перевода:', translationConfig);
+  // Подключаем клиент к сигнальному серверу
+  window.aiTranslationClient.connectToSignalingServer(webrtcManager.socket);
   
-  // Обновляем настройки в сервисе перевода
-  window.translateService.updateSettings(translationConfig);
+  // Устанавливаем информацию о звонке
+  window.aiTranslationClient.setCallInfo(roomId, peerId);
   
-  // Подключаем аудио поток к сервису перевода
-  window.translateService.connect(stream);
+  // Настраиваем аудио для перевода
+  window.aiTranslationClient.setupAudioForTranslation(
+    stream, 
+    webrtcManager.remoteStream, 
+    webrtcManager.peerConnection
+  );
   
-  // Включаем перевод
-  window.translateService.startTranslation();
-  console.log('Перевод речи запущен');
+  // Активируем клиент перевода
+  window.aiTranslationClient.setEnabled(true);
+  
+  // Добавляем обработчики событий перевода
+  window.aiTranslationClient.on('translation', (data) => {
+    // Отображаем перевод в интерфейсе
+    if (data.final) {
+      showNotification(`Перевод: ${data.text}`);
+    }
+  });
+  
+  window.aiTranslationClient.on('error', (data) => {
+    console.error('AI ошибка перевода:', data.message);
+    showNotification(`Ошибка перевода: ${data.message}`, 'error');
+  });
+  
+  console.log('AI перевод речи настроен');
 }
 
 // Обработчики событий для вкладок
@@ -2228,8 +2250,22 @@ function rejectIncomingCall() {
 
 // Остановка перевода речи
 function stopTranslation() {
-  console.log('Остановка перевода речи...');
+  console.log('Остановка AI перевода речи...');
   
+  // Проверяем новый AI-переводчик
+  if (window.aiTranslationClient) {
+    // Выключаем перевод в текущем звонке
+    window.aiTranslationClient.stopTranslation();
+    
+    // Удаляем все обработчики событий
+    window.aiTranslationClient.off('translation', null);
+    window.aiTranslationClient.off('error', null);
+    window.aiTranslationClient.off('transcript', null);
+    
+    console.log('AI перевод остановлен');
+  }
+  
+  // Проверяем старый механизм перевода (для обратной совместимости)
   if (window.translateService && window.translateService.translating) {
     window.translateService.stopTranslation();
     console.log('Перевод речи остановлен');
