@@ -169,6 +169,13 @@ class TranslateService {
       });
     }
     
+    // Если изменилась настройка заглушения звука, применяем её немедленно
+    if (previousSettings.muteOriginal !== this.settings.muteOriginal && this.translating) {
+      this.log(`Изменена настройка заглушения звука: ${this.settings.muteOriginal ? 'Включено' : 'Выключено'}`);
+      // Немедленно применяем настройку заглушения
+      this.setupAudioMixing();
+    }
+    
     // Если изменился язык перевода и уже подключены, отправляем обновление
     if ((previousSettings.targetLanguage !== this.settings.targetLanguage || 
          previousSettings.voice !== this.settings.voice) && 
@@ -591,10 +598,13 @@ class TranslateService {
     
     this.log('Запуск перевода речи...');
     
-    // Настраиваем аудио микширование, если оригинальный голос должен быть приглушен
-    if (this.settings.muteOriginal) {
-      this.setupAudioMixing();
-    }
+    // Настраиваем аудио микширование в любом случае, чтобы применить настройку заглушения
+    // теперь мы всегда вызываем setupAudioMixing, вне зависимости от muteOriginal
+    this.setupAudioMixing();
+    
+    // Публикуем текущее состояние заглушения
+    this.log(`Состояние заглушения звука: ${this.settings.muteOriginal ? 'Включено' : 'Выключено'}`);
+
     
     this.translating = true;
     this.triggerEvent('translation-started', { timestamp: new Date() });
