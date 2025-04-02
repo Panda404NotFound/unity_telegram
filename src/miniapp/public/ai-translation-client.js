@@ -226,8 +226,11 @@ class AITranslationClient {
         return;
       }
       
+      this.log('Начало настройки обработки аудио...', 'info');
+      
       // Создаем AudioContext
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.log(`AudioContext создан, частота дискретизации: ${this.audioContext.sampleRate}Hz`, 'info');
       
       // Получаем аудио трек
       const audioTrack = this.localStream.getAudioTracks()[0];
@@ -236,8 +239,12 @@ class AITranslationClient {
         return;
       }
       
+      // Показываем информацию о треке
+      this.log(`Аудио трек найден: ID=${audioTrack.id}, enabled=${audioTrack.enabled}, muted=${audioTrack.muted}`, 'info');
+      
       // Создаем источник из медиа потока
       const source = this.audioContext.createMediaStreamSource(this.localStream);
+      this.log('Создан источник MediaStreamSource', 'info');
       
       // Размер буфера для обработки
       const bufferSize = 4096;
@@ -247,9 +254,16 @@ class AITranslationClient {
         ? this.audioContext.createScriptProcessor(bufferSize, 1, 1)
         : this.audioContext.createJavaScriptNode(bufferSize, 1, 1);
       
+      this.log(`Создан аудио процессор с размером буфера ${bufferSize}`, 'info');
+      
       // Подключаем процессор
       source.connect(this.audioProcessor);
       this.audioProcessor.connect(this.audioContext.destination);
+      this.log('Аудио процессор подключен к источнику и конечной точке', 'info');
+      
+      // Счетчик отправленных аудио пакетов
+      let packetCounter = 0;
+      const logInterval = 10; // Логировать каждые 10 пакетов
       
       // Обработка аудио данных
       this.audioProcessor.onaudioprocess = (e) => {
@@ -259,11 +273,38 @@ class AITranslationClient {
           const inputBuffer = e.inputBuffer;
           const inputData = inputBuffer.getChannelData(0);
           
-          // Конвертируем Float32Array в Int16Array для отправки
-          const pcmData = this.convertFloat32ToInt16(inputData);
+          // Проверяем уровень конроля голоса (простая реализация)
+          let hasSound = false;
+          let maxVolume = 0;
           
-          // Отправляем аудио данные на сервер
-          this.websocket.send(pcmData.buffer);
+          // Проверяем амплитуду звука
+          for (let i = 0; i < inputData.length; i++) {
+            const absValue = Math.abs(inputData[i]);
+            if (absValue > maxVolume) {
+              maxVolume = absValue;
+            }
+          }
+          
+          // Порог для определения наличия звука
+          const threshold = 0.01;
+          hasSound = maxVolume > threshold;
+          
+          // Если есть звук или VAD выключен, отправляем данные
+          if (hasSound || !this.settings.useVAD) {
+            // Конвертируем Float32Array в Int16Array для отправки
+            const pcmData = this.convertFloat32ToInt16(inputData);
+            
+            // Отправляем аудио данные на сервер
+            this.websocket.send(pcmData.buffer);
+            
+            // Увеличиваем счетчик пакетов
+            packetCounter++;
+            
+            // Логируем периодически
+            if (packetCounter % logInterval === 0) {
+              this.log(`Отправлено ${packetCounter} аудио пакетов, текущий уровень громкости: ${Math.round(maxVolume * 100)}%`, 'debug');
+            }
+          }
         }
       };
       
@@ -312,6 +353,8 @@ class AITranslationClient {
    * Включает перевод речи в текущем звонке
    */
   startTranslation() {
+    this.log('Попытка запустить перевод речи...', 'info');
+    
     if (!this.ready) {
       this.log('Клиент перевода не готов', 'error');
       return;
@@ -322,21 +365,51 @@ class AITranslationClient {
       return;
     }
     
-    if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
-      this.log('Нет подключения к сигнальному серверу', 'error');
+    if (!this.websocket) {
+      this.log('Нет WebSocket соединения', 'error');
       return;
     }
     
-    // Отправляем запрос на включение перевода
+    if (this.websocket.readyState !== WebSocket.OPEN) {
+      this.log(`WebSocket соединение не открыто, текущее состояние: ${this.websocket.readyState}`, 'error');
+      return;
+    }
+    
+    this.log(`Отправляем запрос на включение перевода в комнате ${this.roomId}`, 'info');
+    
+    // Автоматически активируем себя локально для начала отправки аудио
+    this.active = true;
+    
+    // Отправляем настройки перевода на сервер
     this.websocket.send(JSON.stringify({
-      type: 'toggle-translation',
+      type: 'translation-settings',
       payload: {
-        enabled: true,
-        roomId: this.roomId
+        sourceLanguage: this.settings.sourceLanguage,
+        targetLanguage: this.settings.targetLanguage,
+        voice: this.settings.voice
       }
     }));
     
-    this.log('Отправлен запрос на включение перевода', 'info');
+    this.log('Отправлены настройки перевода на сервер', 'info');
+    
+    // Затем отправляем запрос на включение перевода
+    setTimeout(() => {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        this.websocket.send(JSON.stringify({
+          type: 'toggle-translation',
+          payload: {
+            enabled: true,
+            roomId: this.roomId
+          }
+        }));
+        
+        this.log('Отправлен запрос на включение перевода', 'info');
+        this.triggerEvent('translation-started', { roomId: this.roomId });
+      } else {
+        this.log('Не удалось отправить запрос на включение перевода, WebSocket закрыт', 'error');
+        this.active = false;
+      }
+    }, 500); // Даем небольшую задержку, чтобы настройки были применены
   }
   
   /**

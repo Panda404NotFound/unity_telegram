@@ -1800,6 +1800,47 @@ function showCallInterface(customContact = null) {
   muteBtn.addEventListener('click', toggleMute);
   videoBtn.addEventListener('click', toggleVideo);
   endCallBtn.addEventListener('click', endCall);
+  
+  // Автоматически инициализируем перевод для звонков
+  if (webrtcManager && webrtcManager.localStream) {
+    console.log('Автоматическая инициализация AI-перевода в звонке');
+    
+    // Проверяем наличие клиента AI-перевода
+    if (window.aiTranslationClient && window.aiTranslationClient.ready) {
+      // Подключаем клиент к сигнальному серверу
+      if (webrtcManager.socket) {
+        window.aiTranslationClient.connectToSignalingServer(webrtcManager.socket);
+        console.log('AI-переводчик подключен к сигнальному серверу');
+      }
+      
+      // Устанавливаем информацию о звонке
+      window.aiTranslationClient.setCallInfo(
+        webrtcManager.roomId, 
+        webrtcManager.targetUserId
+      );
+      console.log(`Установлена информация о звонке: комната ${webrtcManager.roomId}, собеседник ${webrtcManager.targetUserId}`);
+      
+      // Настраиваем аудио для перевода
+      window.aiTranslationClient.setupAudioForTranslation(
+        webrtcManager.localStream, 
+        webrtcManager.remoteStream, 
+        webrtcManager.peerConnection
+      );
+      console.log('AI-переводчик настроен для обработки аудио');
+      
+      // Включаем перевод глобально
+      window.aiTranslationClient.setEnabled(true);
+      console.log('AI-перевод глобально включен');
+      
+      // Автоматически запускаем перевод через 2 секунды
+      setTimeout(() => {
+        window.aiTranslationClient.startTranslation();
+        console.log('AI-перевод автоматически запущен');
+      }, 2000);
+    } else {
+      console.error('Клиент AI-перевода недоступен или не готов');
+    }
+  }
 }
 
 // Переключение микрофона
@@ -2274,12 +2315,21 @@ function stopTranslation() {
 
 // Завершение звонка
 function endCall() {
+  console.log('Завершение звонка и остановка AI-перевода...');
+  
   if (webrtcManager) {
     webrtcManager.endCall();
   }
   
-  // Останавливаем перевод речи
+  // Останавливаем традиционный перевод речи (старый механизм)
   stopTranslation();
+  
+  // Останавливаем AI-перевод
+  if (window.aiTranslationClient) {
+    window.aiTranslationClient.stopTranslation();
+    window.aiTranslationClient.setEnabled(false);
+    console.log('AI-перевод остановлен');
+  }
   
   // Останавливаем все треки локального потока
   if (localStream) {

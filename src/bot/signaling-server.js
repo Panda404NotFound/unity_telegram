@@ -203,11 +203,27 @@ class SignalingServer {
         voice: 'alloy'
       };
       
-      // Создаем ассистентов асинхронно
+      // Создаем и автоматически активируем ассистентов
       aiTranslationService.createAssistant(callerIdStr, callerSettings)
         .then(success => {
           if (success) {
             this.log(`Создан ассистент перевода для инициатора звонка ${callerIdStr}`, 'info');
+            
+            // Автоматически активируем ассистента
+            aiTranslationService.activateAssistant(callerIdStr, roomId).then(activated => {
+              if (activated) {
+                this.log(`Ассистент перевода для ${callerIdStr} автоматически активирован`, 'info');
+                
+                // Создаем состояние перевода в комнате
+                this.ensureRoomTranslationState(roomId);
+                
+                // Включаем перевод для этого пользователя
+                const roomState = this.roomTranslationState.get(roomId);
+                if (roomState && roomState.participants) {
+                  roomState.participants.set(callerIdStr, true);
+                }
+              }
+            });
           }
         });
       
@@ -215,6 +231,19 @@ class SignalingServer {
         .then(success => {
           if (success) {
             this.log(`Создан ассистент перевода для получателя звонка ${targetUserIdStr}`, 'info');
+            
+            // Автоматически активируем ассистента
+            aiTranslationService.activateAssistant(targetUserIdStr, roomId).then(activated => {
+              if (activated) {
+                this.log(`Ассистент перевода для ${targetUserIdStr} автоматически активирован`, 'info');
+                
+                // Включаем перевод для этого пользователя
+                const roomState = this.roomTranslationState.get(roomId);
+                if (roomState && roomState.participants) {
+                  roomState.participants.set(targetUserIdStr, true);
+                }
+              }
+            });
           }
         });
     }
@@ -457,6 +486,15 @@ class SignalingServer {
     // Удаляем информацию о комнате у всех пользователей
     for (const userId of room) {
       this.userRooms.delete(userId);
+      
+      // Деактивируем ассистента перевода для пользователя
+      if (this.translationEnabled) {
+        aiTranslationService.deactivateAssistant(userId).then(() => {
+          this.log(`Ассистент перевода для ${userId} деактивирован`, 'info');
+        }).catch(error => {
+          this.log(`Ошибка при деактивации ассистента для ${userId}: ${error.message}`, 'error');
+        });
+      }
     }
     
     // Удаляем саму комнату
@@ -466,6 +504,23 @@ class SignalingServer {
     this.roomTranslationState.delete(roomId);
     
     console.log(`Комната ${roomId} удалена`);
+  }
+  
+  /**
+   * Создает или возвращает состояние перевода для комнаты
+   * @param {string} roomId - ID комнаты
+   * @returns {Object} Состояние перевода для комнаты
+   */
+  ensureRoomTranslationState(roomId) {
+    if (!this.roomTranslationState.has(roomId)) {
+      this.roomTranslationState.set(roomId, {
+        enabled: true,
+        participants: new Map()
+      });
+      this.log(`Создано состояние перевода для комнаты ${roomId}`, 'debug');
+    }
+    
+    return this.roomTranslationState.get(roomId);
   }
   
   /**
@@ -490,14 +545,12 @@ class SignalingServer {
         return;
       }
       
-      // Проверяем, включен ли перевод для этой комнаты
-      const roomTranslation = this.roomTranslationState.get(roomId);
-      const translationEnabled = roomTranslation && roomTranslation.enabled;
+      // Логируем получение аудио данных для отладки
+      this.log(`Получены аудио данные от пользователя ${userId} размером: ${audioData.byteLength} байт`, 'debug');
       
-      // Если перевод отключен, просто игнорируем аудио данные
-      if (!translationEnabled) {
-        return;
-      }
+      // Обеспечиваем наличие состояния перевода для комнаты
+      this.ensureRoomTranslationState(roomId);
+      const roomTranslation = this.roomTranslationState.get(roomId);
       
       // Получаем других участников комнаты
       const room = this.rooms.get(roomId);
@@ -509,17 +562,46 @@ class SignalingServer {
       // Получаем список получателей (все кроме отправителя)
       const recipients = Array.from(room).filter(id => id !== userId);
       
-      // Проверяем, включен ли перевод для этого пользователя
-      const isTranslatingUser = roomTranslation && 
-                                roomTranslation.participants && 
-                                roomTranslation.participants.get(userId);
-      
-      if (!isTranslatingUser) {
-        return;
+      // Если перевод включен глобально и существует OpenAI ключ
+      if (this.translationEnabled) {
+        // Проверяем, активирован ли ассистент пользователя
+        const assistant = await aiTranslationService.getAssistant(userId);
+        
+        if (!assistant || !assistant.active) {
+          // Автоматически активируем ассистента, если он существует но не активен
+          this.log(`Ассистент для ${userId} не активен, пытаемся активировать`, 'info');
+          
+          const activated = await aiTranslationService.activateAssistant(userId, roomId);
+          if (activated) {
+            this.log(`Ассистент для ${userId} успешно активирован`, 'info');
+            
+            // Включаем перевод для пользователя
+            if (roomTranslation && roomTranslation.participants) {
+              roomTranslation.participants.set(userId, true);
+            }
+          }
+        }
+        
+        // Проверяем, что перевод включен для этого пользователя
+        const isTranslatingUser = roomTranslation && 
+                                 roomTranslation.participants && 
+                                 roomTranslation.participants.get(userId);
+        
+        if (isTranslatingUser) {
+          this.log(`Обрабатываем аудио для перевода от пользователя ${userId}`, 'debug');
+          
+          // Обрабатываем аудио через аудио-процессор
+          const result = await audioProcessor.processAudio(userId, roomId, audioData, recipients, true);
+          
+          if (result && result.success) {
+            this.log(`Аудио от ${userId} успешно отправлено на обработку`, 'debug');
+          }
+        } else {
+          this.log(`Перевод не активирован для пользователя ${userId}`, 'debug');
+        }
+      } else {
+        this.log(`Перевод глобально отключен или недоступен API ключ OpenAI`, 'warn');
       }
-      
-      // Обрабатываем аудио через аудио-процессор
-      await audioProcessor.processAudio(userId, roomId, audioData, recipients, true);
       
     } catch (error) {
       this.log(`Ошибка при обработке аудио данных: ${error.message}`, 'error');
